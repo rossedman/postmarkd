@@ -339,3 +339,73 @@ func TestHandleSMTP(t *testing.T) {
 		t.Errorf("empty body: err = %v", err)
 	}
 }
+
+func TestNormalizeEdgeCases(t *testing.T) {
+	d := defaults{From: "def@example.com", MessageStream: "outbound"}
+	cases := []struct {
+		name, in   string
+		wantFrom   string
+		wantStream string
+		same       bool // forwarded byte-for-byte
+	}{
+		{"untouched", `{"From":"a@example.com","To":"b@example.com","TextBody":"x","MessageStream":"s"}`, "a@example.com", "s", true},
+		{"inject both", ` {"To":"b@example.com","TextBody":"x"}`, "def@example.com", "outbound", false},
+		{"blank from replaced", `{"From":"  ","To":"b@example.com","TextBody":"x","MessageStream":"s"}`, "def@example.com", "s", false},
+		{"null from replaced", `{"From":null,"To":"b@example.com","TextBody":"x","MessageStream":"s"}`, "def@example.com", "s", false},
+		{"escaped blank", `{"From":" ","To":"b@example.com","TextBody":"x","MessageStream":"s"}`, "def@example.com", "s", false},
+		{"escaped non-blank", `{"From":"a@example.com","To":"b@example.com","TextBody":"x","MessageStream":"s"}`, "a@example.com", "s", true},
+	}
+	for _, c := range cases {
+		out, err := normalize([]byte(c.in), false, d)
+		if err != nil {
+			t.Errorf("%s: %v", c.name, err)
+			continue
+		}
+		var m map[string]any
+		if json.Unmarshal(out, &m) != nil {
+			t.Errorf("%s: invalid output %s", c.name, out)
+			continue
+		}
+		if m["From"] != c.wantFrom || m["MessageStream"] != c.wantStream {
+			t.Errorf("%s: got %s", c.name, out)
+		}
+		if (string(out) == c.in) != c.same {
+			t.Errorf("%s: forwarded unchanged = %v, want %v", c.name, string(out) == c.in, c.same)
+		}
+	}
+	if _, err := normalize([]byte(`{"To":"b@example.com","TextBody":"   "}`), false, d); err == nil {
+		t.Error("blank body accepted")
+	}
+	if _, err := normalize([]byte(`{"To":"b@example.com","TextBody":"x"}`), false, defaults{}); err == nil {
+		t.Error("missing From accepted without default")
+	}
+}
+
+func TestBatchMixedDefaults(t *testing.T) {
+	body := `[{"From":"a@example.com","To":"b@example.com","TextBody":"x"}, {"To":"c@example.com","TextBody":"y"}]`
+	out, n, err := prepare(endpoints[1], []byte(body), defaults{From: "def@example.com"})
+	if err != nil || n != 2 {
+		t.Fatal(err, n)
+	}
+	var ms []map[string]any
+	if json.Unmarshal(out, &ms) != nil || ms[0]["From"] != "a@example.com" || ms[1]["From"] != "def@example.com" {
+		t.Fatalf("%s", out)
+	}
+	if _, _, err := prepare(endpoints[1], []byte(body), defaults{}); err == nil || !strings.Contains(err.Message, "message 1") {
+		t.Fatalf("second message has no From and no default: err = %v", err)
+	}
+}
+
+// prepare avoids copying batch elements by relying on encoding/json passing
+// UnmarshalJSON a subslice of the input. Fail loudly if that ever changes.
+func TestRawJSONAliasesInput(t *testing.T) {
+	body := []byte(`[{"a":1},{"b":2}]`)
+	var elems []rawJSON
+	if err := json.Unmarshal(body, &elems); err != nil {
+		t.Fatal(err)
+	}
+	body[2] = 'X'
+	if elems[0][1] != 'X' {
+		t.Fatal("encoding/json copied the value; rawJSON must copy too (see normalizeBatch)")
+	}
+}

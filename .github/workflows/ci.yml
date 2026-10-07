@@ -40,3 +40,48 @@ jobs:
           for i in $(seq 20); do docker exec pm /usr/bin/postmarkd healthcheck && break; sleep 1; done
           curl -sf localhost:8025/email -d '{"To":"a@example.com","Subject":"ci","TextBody":"hi"}'
           curl -sf localhost:8025/blackhole/messages | grep -q '"Subject":"ci"'
+
+  bench:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: head
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache-dependency-path: head/go.mod
+      - run: go install golang.org/x/perf/cmd/benchstat@latest
+      - name: Benchmark this commit
+        working-directory: head
+        run: make bench | tee ../new.txt
+      - name: Benchmark the base branch
+        if: github.event_name == 'pull_request'
+        run: |
+          git clone --quiet --depth 1 --branch "${{ github.base_ref }}" \
+            "https://github.com/${{ github.repository }}" base
+          # Run the PR's benchmarks against the base code, so both sides
+          # measure the same thing. Skip if the base can't build them.
+          (cd head && find internal -name bench_test.go) | while read -r f; do cp "head/$f" "base/$f"; done
+          if (cd base && go vet ./internal/... >/dev/null 2>&1); then
+            (cd base && go test -run '^$' -bench . -benchmem -count 6 ./internal/...) | tee old.txt
+          else
+            echo "Base branch cannot build these benchmarks; skipping comparison."
+          fi
+      - name: Compare
+        if: github.event_name == 'pull_request' && hashFiles('old.txt') != ''
+        run: |
+          set +e
+          head/scripts/bench-compare.sh old.txt new.txt > compare.txt 2>&1
+          status=$?
+          { echo '## Benchmarks vs ${{ github.base_ref }}'; echo '```'; cat compare.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          cat compare.txt
+          exit $status
+      - name: Summary
+        if: github.event_name != 'pull_request'
+        run: |
+          { echo '## Benchmarks'; echo '```'; benchstat new.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: benchmarks
+          path: new.txt

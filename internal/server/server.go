@@ -4,14 +4,15 @@ package server
 
 import (
 	"context"
-	"crypto/rand"
 	"crypto/subtle"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"math/rand/v2"
 	"net/http"
 	"strconv"
 	"strings"
@@ -116,16 +117,18 @@ func (s *Server) send(ep endpoint) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		rid := requestID(r)
 		w.Header().Set("X-Request-Id", rid)
-		log := s.log.With("request_id", rid, "endpoint", ep.name)
+		log := reqLog{s.log, rid, ep.name, false}
 		status := http.StatusOK
 		defer func() { s.metrics.Request(ep.name, status) }()
 
 		fail := func(e *apiError) {
 			status = e.Status
 			if e.Status >= 500 {
-				log.Warn("request failed", "status", e.Status, "error", e.Message)
+				log.log(slog.LevelWarn, "request failed", "status", e.Status, "error", e.Message)
 			} else {
-				log.Debug("request rejected", "status", e.Status, "error", e.Message)
+				if log.enabled(slog.LevelDebug) {
+					log.log(slog.LevelDebug, "request rejected", "status", e.Status, "error", e.Message)
+				}
 			}
 			writeJSON(w, e.Status, e)
 		}
@@ -168,7 +171,9 @@ func (s *Server) send(ep endpoint) http.HandlerFunc {
 			}
 			s.metrics.AsyncEnqueued.Add(1)
 			status = http.StatusAccepted
-			log.Debug("queued", "messages", n)
+			if log.enabled(slog.LevelDebug) {
+				log.log(slog.LevelDebug, "queued", "messages", n)
+			}
 			writeJSON(w, status, map[string]any{"ErrorCode": 0, "Message": "Queued", "RequestID": rid, "Messages": n})
 			return
 		}
@@ -194,14 +199,14 @@ func (s *Server) send(ep endpoint) http.HandlerFunc {
 }
 
 // forward sends a prepared body to Postmark and records the outcome.
-func (s *Server) forward(ctx context.Context, ep endpoint, body []byte, n int, log *slog.Logger) (*postmark.Response, error) {
+func (s *Server) forward(ctx context.Context, ep endpoint, body []byte, n int, log reqLog) (*postmark.Response, error) {
 	start := time.Now()
 	res, err := s.sender.Post(ctx, ep.path, body)
 	elapsed := time.Since(start)
 	if err != nil {
 		s.metrics.Upstream(ep.name, "error", elapsed)
 		s.metrics.MessagesFailed.Add(uint64(n))
-		log.Warn("postmark request failed", "error", err, "messages", n, "duration", elapsed)
+		log.log(slog.LevelWarn, "postmark request failed", "error", err, "messages", n, "duration", elapsed)
 		return nil, err
 	}
 	s.metrics.Upstream(ep.name, strconv.Itoa(res.StatusCode), elapsed)
@@ -212,20 +217,20 @@ func (s *Server) forward(ctx context.Context, ep endpoint, body []byte, n int, l
 	s.metrics.MessagesSent.Add(uint64(sent))
 	s.metrics.MessagesFailed.Add(uint64(failed))
 	if failed > 0 {
-		log.Warn("postmark rejected messages", "status", res.StatusCode, "sent", sent, "failed", failed, "error", firstErr, "duration", elapsed)
-	} else {
-		log.Debug("sent", "messages", sent, "attempts", res.Attempts, "duration", elapsed)
+		log.log(slog.LevelWarn, "postmark rejected messages", "status", res.StatusCode, "sent", sent, "failed", failed, "error", firstErr, "duration", elapsed)
+	} else if log.enabled(slog.LevelDebug) {
+		log.log(slog.LevelDebug, "sent", "messages", sent, "attempts", res.Attempts, "duration", elapsed)
 	}
 	return res, nil
 }
 
 // deliver is the async queue worker.
 func (s *Server) deliver(ctx context.Context, j queue.Job) {
-	log := s.log.With("request_id", j.ID, "endpoint", j.Endpoint, "async", true)
+	log := reqLog{s.log, j.ID, j.Endpoint, true}
 	if ctx.Err() != nil {
 		s.metrics.AsyncDropped.Add(1)
 		s.metrics.MessagesFailed.Add(uint64(j.Messages))
-		log.Error("dropping queued request at shutdown", "messages", j.Messages)
+		log.log(slog.LevelError, "dropping queued request at shutdown", "messages", j.Messages)
 		return
 	}
 	for _, ep := range endpoints {
@@ -258,8 +263,7 @@ func (s *Server) HandleSMTP(ctx context.Context, env smtpd.Envelope, data []byte
 	if aerr != nil {
 		return reject(aerr.Status, 554, "5.6.0 "+aerr.Message)
 	}
-	rid := newID()
-	log := s.log.With("request_id", rid, "endpoint", smtpEndpoint.name)
+	log := reqLog{s.log, newID(), smtpEndpoint.name, false}
 	res, err := s.forward(ctx, smtpEndpoint, out, n, log)
 	if err != nil {
 		return reject(http.StatusBadGateway, 451, "4.4.1 Postmark unreachable, try again later")
@@ -352,10 +356,36 @@ func requestID(r *http.Request) string {
 	return newID()
 }
 
+// newID returns a random 96-bit hex ID. IDs only correlate logs, so they
+// don't need a cryptographic generator.
 func newID() string {
 	var b [12]byte
-	rand.Read(b[:])
+	binary.LittleEndian.PutUint64(b[:8], rand.Uint64())
+	binary.LittleEndian.PutUint32(b[8:], rand.Uint32())
 	return hex.EncodeToString(b[:])
+}
+
+// reqLog adds request attributes to log records. Unlike slog.Logger.With,
+// it costs nothing unless something is actually logged.
+type reqLog struct {
+	l      *slog.Logger
+	id, ep string
+	async  bool
+}
+
+func (r reqLog) enabled(level slog.Level) bool {
+	return r.l.Enabled(context.Background(), level)
+}
+
+func (r reqLog) log(level slog.Level, msg string, args ...any) {
+	if !r.enabled(level) {
+		return
+	}
+	attrs := append(make([]any, 0, len(args)+6), "request_id", r.id, "endpoint", r.ep)
+	if r.async {
+		attrs = append(attrs, "async", true)
+	}
+	r.l.Log(context.Background(), level, msg, append(attrs, args...)...)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

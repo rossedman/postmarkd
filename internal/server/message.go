@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -37,12 +38,6 @@ func (m message) str(name string) string {
 		return ""
 	}
 	return strings.TrimSpace(s)
-}
-
-// has reports whether a field is present and not null.
-func (m message) has(name string) bool {
-	k, ok := m.key(name)
-	return ok && string(m[k]) != "null"
 }
 
 func (m message) setDefault(name, value string) {
@@ -114,105 +109,221 @@ type defaults struct {
 
 // prepare parses and validates a request body for ep, applies defaults and
 // returns the body to forward along with the number of messages it holds.
+//
+// This is on the path of every send, so it avoids decoding whole messages:
+// each message is scanned once for the few fields postmarkd checks, and the
+// original bytes are forwarded unchanged unless a default has to be added.
 func prepare(ep endpoint, body []byte, d defaults) ([]byte, int, *apiError) {
 	switch ep.kind {
 	case kindEmail, kindTemplate:
-		var m message
-		if json.Unmarshal(body, &m) != nil || m == nil {
-			return nil, 0, errInvalidJSON
-		}
-		if err := normalize(m, ep.kind == kindTemplate, d); err != nil {
-			return nil, 0, invalid("%s", err)
-		}
-		out, err := json.Marshal(m)
+		out, err := normalize(body, ep.kind == kindTemplate, d)
 		if err != nil {
-			return nil, 0, errInvalidJSON
+			return nil, 0, err
 		}
 		return out, 1, nil
 
 	case kindBatch:
-		var ms []message
-		if json.Unmarshal(body, &ms) != nil || ms == nil {
+		if !isJSON(body, '[') {
 			return nil, 0, errInvalidJSON
 		}
-		if err := normalizeAll(ms, false, d); err != nil {
-			return nil, 0, err
-		}
-		out, err := json.Marshal(ms)
-		if err != nil {
-			return nil, 0, errInvalidJSON
-		}
-		return out, len(ms), nil
+		return normalizeBatch(body, false, d)
 
 	case kindTemplateBatch:
 		var wrapper message
-		if json.Unmarshal(body, &wrapper) != nil || wrapper == nil {
+		if !isJSON(body, '{') || json.Unmarshal(body, &wrapper) != nil {
 			return nil, 0, errInvalidJSON
 		}
 		k, ok := wrapper.key("Messages")
 		if !ok {
 			return nil, 0, invalid("'Messages' is required")
 		}
-		var ms []message
-		if json.Unmarshal(wrapper[k], &ms) != nil || ms == nil {
+		if !isJSON(wrapper[k], '[') {
 			return nil, 0, invalid("'Messages' must be an array of messages")
 		}
-		if err := normalizeAll(ms, true, d); err != nil {
+		msgs, n, err := normalizeBatch(wrapper[k], true, d)
+		if err != nil {
 			return nil, 0, err
 		}
-		raw, err := json.Marshal(ms)
-		if err != nil {
+		if &msgs[0] == &wrapper[k][0] { // unchanged
+			return body, n, nil
+		}
+		wrapper[k] = msgs
+		out, merr := json.Marshal(wrapper)
+		if merr != nil {
 			return nil, 0, errInvalidJSON
 		}
-		wrapper[k] = raw
-		out, err := json.Marshal(wrapper)
-		if err != nil {
-			return nil, 0, errInvalidJSON
-		}
-		return out, len(ms), nil
+		return out, n, nil
 	}
 	panic("unknown endpoint kind")
 }
 
-func normalizeAll(ms []message, template bool, d defaults) *apiError {
-	if len(ms) == 0 {
-		return invalid("batch contains no messages")
+// rawJSON captures a JSON value without copying it. encoding/json hands
+// UnmarshalJSON a subslice of the input, which outlives the call here.
+type rawJSON []byte
+
+func (r *rawJSON) UnmarshalJSON(b []byte) error { *r = b; return nil }
+
+// normalizeBatch normalizes every message of a JSON array.
+func normalizeBatch(body []byte, template bool, d defaults) ([]byte, int, *apiError) {
+	var elems []rawJSON
+	if json.Unmarshal(body, &elems) != nil {
+		return nil, 0, errInvalidJSON
 	}
-	if len(ms) > maxBatch {
-		return invalid("batch contains %d messages; the maximum is %d", len(ms), maxBatch)
+	if len(elems) == 0 {
+		return nil, 0, invalid("batch contains no messages")
 	}
-	for i, m := range ms {
-		if m == nil {
-			return invalid("message %d: expected a JSON object", i)
+	if len(elems) > maxBatch {
+		return nil, 0, invalid("batch contains %d messages; the maximum is %d", len(elems), maxBatch)
+	}
+	changed := false
+	outs := make([][]byte, len(elems))
+	for i, e := range elems {
+		out, err := normalize(e, template, d)
+		if err != nil {
+			if err == errInvalidJSON {
+				return nil, 0, invalid("message %d: expected a JSON object", i)
+			}
+			return nil, 0, invalid("message %d: %s", i, err.Message)
 		}
-		if err := normalize(m, template, d); err != nil {
-			return invalid("message %d: %s", i, err)
-		}
+		outs[i] = out
+		changed = changed || &out[0] != &e[0]
 	}
+	if !changed {
+		return body, len(elems), nil
+	}
+	size := 2 + len(outs)
+	for _, o := range outs {
+		size += len(o)
+	}
+	buf := make([]byte, 0, size)
+	buf = append(buf, '[')
+	for i, o := range outs {
+		if i > 0 {
+			buf = append(buf, ',')
+		}
+		buf = append(buf, o...)
+	}
+	return append(buf, ']'), len(elems), nil
+}
+
+// field records whether a field is present and whether it holds a
+// non-blank string, without copying its value.
+type field struct{ present, null, nonBlank bool }
+
+func (f *field) UnmarshalJSON(b []byte) error {
+	f.present = true
+	f.null = string(b) == "null"
+	f.nonBlank = len(b) > 2 && b[0] == '"' && !blankString(b)
 	return nil
 }
 
-// normalize applies defaults and performs the cheap validation needed to
-// reject obviously broken messages before they reach Postmark (or the async
-// queue, where the caller would never see the error).
-func normalize(m message, template bool, d defaults) error {
-	m.setDefault("From", d.From)
-	m.setDefault("MessageStream", d.MessageStream)
-
-	if m.str("From") == "" {
-		return fmt.Errorf("'From' is required (or configure POSTMARKD_DEFAULT_FROM)")
+func blankString(quoted []byte) bool {
+	for _, c := range quoted[1 : len(quoted)-1] {
+		switch c {
+		case ' ', '\t', '\r', '\n':
+		case '\\': // escapes are rare; decode to be exact
+			var s string
+			json.Unmarshal(quoted, &s)
+			return strings.TrimSpace(s) == ""
+		default:
+			return false
+		}
 	}
-	if m.str("To") == "" && m.str("Cc") == "" && m.str("Bcc") == "" {
-		return fmt.Errorf("at least one recipient ('To', 'Cc' or 'Bcc') is required")
+	return true
+}
+
+// fields are the message fields postmarkd checks. Like Postmark,
+// encoding/json matches keys case-insensitively.
+type fields struct {
+	From, To, Cc, Bcc, HtmlBody, TextBody    field
+	TemplateId, TemplateAlias, MessageStream field
+}
+
+// normalize validates one message and applies defaults. It returns raw
+// itself (same backing array) when nothing had to change, so callers can
+// detect that cheaply. Validation is just enough to reject obviously broken
+// messages before they reach Postmark (or the async queue, where the caller
+// would never see the error).
+func normalize(raw []byte, template bool, d defaults) ([]byte, *apiError) {
+	var f fields
+	if !isJSON(raw, '{') || json.Unmarshal(raw, &f) != nil {
+		return nil, errInvalidJSON
+	}
+
+	type kv struct{ k, v string }
+	var add []kv
+	for _, x := range []struct {
+		name string
+		f    *field
+		def  string
+	}{{"From", &f.From, d.From}, {"MessageStream", &f.MessageStream, d.MessageStream}} {
+		if x.def == "" || x.f.nonBlank {
+			continue
+		}
+		if x.f.present {
+			// Present but blank: replace in place (rare; full decode).
+			return normalizeSlow(raw, template, d)
+		}
+		add = append(add, kv{x.name, x.def})
+		x.f.nonBlank = true
+	}
+
+	if !f.From.nonBlank {
+		return nil, invalid("'From' is required (or configure POSTMARKD_DEFAULT_FROM)")
+	}
+	if !f.To.nonBlank && !f.Cc.nonBlank && !f.Bcc.nonBlank {
+		return nil, invalid("at least one recipient ('To', 'Cc' or 'Bcc') is required")
 	}
 	if template {
-		if !m.has("TemplateId") && m.str("TemplateAlias") == "" {
-			return fmt.Errorf("'TemplateId' or 'TemplateAlias' is required")
+		if (!f.TemplateId.present || f.TemplateId.null) && !f.TemplateAlias.nonBlank {
+			return nil, invalid("'TemplateId' or 'TemplateAlias' is required")
 		}
-	} else if m.str("HtmlBody") == "" && m.str("TextBody") == "" {
-		return fmt.Errorf("'HtmlBody' or 'TextBody' is required")
+	} else if !f.HtmlBody.nonBlank && !f.TextBody.nonBlank {
+		return nil, invalid("'HtmlBody' or 'TextBody' is required")
 	}
-	return nil
+	if len(add) == 0 {
+		return raw, nil
+	}
+
+	// Insert the defaults right after the opening brace.
+	i := bytes.IndexByte(raw, '{') + 1
+	rest := bytes.TrimLeft(raw[i:], " \t\r\n")
+	out := make([]byte, 0, len(raw)+64)
+	out = append(out, '{')
+	for j, a := range add {
+		if j > 0 {
+			out = append(out, ',')
+		}
+		k, _ := json.Marshal(a.k)
+		v, _ := json.Marshal(a.v)
+		out = append(append(append(out, k...), ':'), v...)
+	}
+	if rest[0] != '}' {
+		out = append(out, ',')
+	}
+	return append(out, rest...), nil
+}
+
+// normalizeSlow is the general path: decode to a map, edit, re-encode.
+func normalizeSlow(raw []byte, template bool, d defaults) ([]byte, *apiError) {
+	var m message
+	if json.Unmarshal(raw, &m) != nil {
+		return nil, errInvalidJSON
+	}
+	m.setDefault("From", d.From)
+	m.setDefault("MessageStream", d.MessageStream)
+	out, err := json.Marshal(m)
+	if err != nil {
+		return nil, errInvalidJSON
+	}
+	// Defaults now hold non-blank values, so this takes the fast path.
+	return normalize(out, template, defaults{})
+}
+
+// isJSON reports whether b's first non-space byte is open.
+func isJSON(b []byte, open byte) bool {
+	b = bytes.TrimLeft(b, " \t\r\n")
+	return len(b) > 0 && b[0] == open
 }
 
 // sendResult is the part of a Postmark send response postmarkd inspects.
@@ -223,7 +334,8 @@ type sendResult struct {
 }
 
 // outcome counts accepted and failed messages in an upstream response, and
-// returns the first failure message, if any.
+// returns the first failure message, if any. Only ErrorCode is decoded on
+// the success path.
 func outcome(ep endpoint, status int, body []byte, n int) (sent, failed int, firstErr string) {
 	if status != 200 {
 		var r sendResult
@@ -233,25 +345,31 @@ func outcome(ep endpoint, status int, body []byte, n int) (sent, failed int, fir
 		}
 		return 0, n, r.Message
 	}
+	type code struct{ ErrorCode int }
 	if ep.kind == kindEmail || ep.kind == kindTemplate {
-		var r sendResult
-		if json.Unmarshal(body, &r) == nil && r.ErrorCode != 0 {
+		var c code
+		if json.Unmarshal(body, &c) == nil && c.ErrorCode != 0 {
+			var r sendResult
+			json.Unmarshal(body, &r)
 			return 0, 1, r.Message
 		}
 		return 1, 0, ""
 	}
-	var rs []sendResult
-	if json.Unmarshal(body, &rs) != nil {
+	var cs []code
+	if json.Unmarshal(body, &cs) != nil {
 		return n, 0, "" // 200 with an unparseable body; assume accepted
 	}
-	for _, r := range rs {
-		if r.ErrorCode == 0 {
+	for i, c := range cs {
+		if c.ErrorCode == 0 {
 			sent++
 			continue
 		}
 		failed++
 		if firstErr == "" {
-			firstErr = r.Message
+			var rs []sendResult
+			if json.Unmarshal(body, &rs) == nil && i < len(rs) {
+				firstErr = rs[i].Message
+			}
 		}
 	}
 	return sent, failed, firstErr

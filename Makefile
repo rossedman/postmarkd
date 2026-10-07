@@ -8,7 +8,7 @@ UNITDIR    ?= $(PREFIX)/lib/systemd/system
 SYSUSERSDIR?= $(PREFIX)/lib/sysusers.d
 DESTDIR    ?=
 
-.PHONY: all build test race vet fmt lint install install-sendmail uninstall docker clean
+.PHONY: all build test race vet fmt lint bench install install-sendmail uninstall docker clean
 
 all: vet test build
 
@@ -26,6 +26,12 @@ vet:
 
 fmt:
 	gofmt -w .
+
+# Benchmarks: make bench > new.txt; benchstat old.txt new.txt
+BENCH ?= .
+BENCHCOUNT ?= 6
+bench:
+	go test -run '^$$' -bench '$(BENCH)' -benchmem -count $(BENCHCOUNT) ./internal/...
 
 lint: vet
 	@test -z "$$(gofmt -l .)" || (echo "gofmt needed:"; gofmt -l .; exit 1)

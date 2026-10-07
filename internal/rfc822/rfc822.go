@@ -62,6 +62,8 @@ const maxNesting = 10
 
 var wordDecoder = &mime.WordDecoder{CharsetReader: charsetReader}
 
+var quoteEscaper = strings.NewReplacer(`\`, `\\`, `"`, `\"`)
+
 // Convert parses raw and builds the equivalent Postmark message.
 //
 // Postmark's SMTP conventions are honoured: X-PM-Message-Stream selects the
@@ -152,7 +154,11 @@ func Convert(raw []byte, env Envelope) (*Message, error) {
 		}
 	}
 
-	if err := walk(m, textproto.MIMEHeader(h), msg.Body, 0); err != nil {
+	// Part bodies are read into one reusable buffer; only what is kept gets
+	// copied out. A part can't be larger than the message.
+	var scratch bytes.Buffer
+	scratch.Grow(len(raw))
+	if err := walk(m, textproto.MIMEHeader(h), msg.Body, &scratch, 0); err != nil {
 		return nil, err
 	}
 	return m, nil
@@ -171,7 +177,7 @@ func forwardHeader(name string) bool {
 	return strings.HasPrefix(name, "X-") && !strings.HasPrefix(name, "X-Pm-")
 }
 
-func walk(m *Message, h textproto.MIMEHeader, body io.Reader, depth int) error {
+func walk(m *Message, h textproto.MIMEHeader, body io.Reader, scratch *bytes.Buffer, depth int) error {
 	if depth > maxNesting {
 		return errors.New("message nests multipart parts too deeply")
 	}
@@ -193,16 +199,18 @@ func walk(m *Message, h textproto.MIMEHeader, body io.Reader, depth int) error {
 			if err != nil {
 				return fmt.Errorf("reading multipart: %w", err)
 			}
-			if err := walk(m, p.Header, p, depth+1); err != nil {
+			if err := walk(m, p.Header, p, scratch, depth+1); err != nil {
 				return err
 			}
 		}
 	}
 
-	data, err := io.ReadAll(decodeTransfer(h.Get("Content-Transfer-Encoding"), body))
-	if err != nil {
-		return fmt.Errorf("decoding %s part: %w", ctype, err)
+	scratch.Reset()
+	if _, err := scratch.ReadFrom(body); err != nil {
+		return fmt.Errorf("reading %s part: %w", ctype, err)
 	}
+	raw := scratch.Bytes() // valid until the next part; copy what is kept
+	enc := strings.ToLower(strings.TrimSpace(h.Get("Content-Transfer-Encoding")))
 
 	disposition, dparams, _ := mime.ParseMediaType(h.Get("Content-Disposition"))
 	filename := decodeHeader(dparams["filename"])
@@ -213,14 +221,26 @@ func walk(m *Message, h textproto.MIMEHeader, body io.Reader, depth int) error {
 
 	switch {
 	case inline && ctype == "text/plain" && m.TextBody == "":
+		data, err := decodeTransfer(enc, raw)
+		if err != nil {
+			return fmt.Errorf("decoding %s part: %w", ctype, err)
+		}
 		m.TextBody = toUTF8(data, params["charset"])
 	case inline && ctype == "text/html" && m.HtmlBody == "":
+		data, err := decodeTransfer(enc, raw)
+		if err != nil {
+			return fmt.Errorf("decoding %s part: %w", ctype, err)
+		}
 		m.HtmlBody = toUTF8(data, params["charset"])
 	default:
 		if filename == "" {
 			filename = fmt.Sprintf("attachment-%d%s", len(m.Attachments)+1, extension(ctype))
 		}
-		a := Attachment{Name: filename, ContentType: ctype, Content: base64.StdEncoding.EncodeToString(data)}
+		content, err := attachmentContent(enc, raw)
+		if err != nil {
+			return fmt.Errorf("decoding attachment %q: %w", filename, err)
+		}
+		a := Attachment{Name: filename, ContentType: ctype, Content: content}
 		if cid := strings.Trim(h.Get("Content-Id"), "<> "); cid != "" {
 			a.ContentID = "cid:" + cid
 		}
@@ -229,30 +249,66 @@ func walk(m *Message, h textproto.MIMEHeader, body io.Reader, depth int) error {
 	return nil
 }
 
-func decodeTransfer(enc string, r io.Reader) io.Reader {
-	switch strings.ToLower(strings.TrimSpace(enc)) {
+// decodeTransfer decodes a part body according to its
+// Content-Transfer-Encoding.
+func decodeTransfer(enc string, raw []byte) ([]byte, error) {
+	switch enc {
 	case "base64":
-		return base64.NewDecoder(base64.StdEncoding, &base64Cleaner{r: r})
+		b64 := stripSpace(raw)
+		out := make([]byte, base64.StdEncoding.DecodedLen(len(b64)))
+		n, err := base64.StdEncoding.Decode(out, b64)
+		return out[:n], err
 	case "quoted-printable":
-		return quotedprintable.NewReader(r)
+		return io.ReadAll(quotedprintable.NewReader(bytes.NewReader(raw)))
 	}
-	return r
+	return raw, nil
 }
 
-// base64Cleaner drops characters a base64 decoder rejects but mailers emit
-// (whitespace, stray padding lines).
-type base64Cleaner struct{ r io.Reader }
+// attachmentContent returns an attachment as base64 for Postmark. Parts
+// that are already base64, as nearly all attachments are, are validated and
+// passed through rather than decoded and re-encoded.
+func attachmentContent(enc string, raw []byte) (string, error) {
+	if enc == "base64" {
+		b64 := stripSpace(raw)
+		if validBase64(b64) {
+			return string(b64), nil
+		}
+	}
+	data, err := decodeTransfer(enc, raw)
+	if err != nil {
+		return "", err
+	}
+	return base64.StdEncoding.EncodeToString(data), nil
+}
 
-func (c *base64Cleaner) Read(p []byte) (int, error) {
-	n, err := c.r.Read(p)
+// stripSpace removes the line breaks and whitespace mailers put in base64,
+// in place.
+func stripSpace(b []byte) []byte {
 	j := 0
-	for _, b := range p[:n] {
-		if b != ' ' && b != '\t' && b != '\r' && b != '\n' {
-			p[j] = b
+	for _, c := range b {
+		if c != ' ' && c != '\t' && c != '\r' && c != '\n' {
+			b[j] = c
 			j++
 		}
 	}
-	return j, err
+	return b[:j]
+}
+
+// validBase64 decodes b in chunks into a small buffer to check it without
+// allocating.
+func validBase64(b []byte) bool {
+	if len(b)%4 != 0 {
+		return false
+	}
+	var buf [3 * 1024]byte
+	for len(b) > 0 {
+		n := min(len(b), 4*1024)
+		if _, err := base64.StdEncoding.Decode(buf[:], b[:n]); err != nil {
+			return false
+		}
+		b = b[n:]
+	}
+	return true
 }
 
 func addressList(h mail.Header, key string) ([]*mail.Address, error) {
@@ -276,7 +332,7 @@ func format(list []*mail.Address) string {
 		if a.Name == "" {
 			parts[i] = a.Address
 		} else {
-			name := strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(a.Name)
+			name := quoteEscaper.Replace(a.Name)
 			parts[i] = `"` + name + `" <` + a.Address + `>`
 		}
 	}
