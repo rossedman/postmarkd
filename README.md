@@ -37,6 +37,44 @@ sent to Postmark over pooled HTTPS connections.
                                        └─ blackhole mode for tests
 ```
 
+## Why not just use Postmark directly?
+
+Postmark already has a good API, SMTP and SDKs, and for a single app that
+already uses a Postmark SDK, calling Postmark directly is fine. postmarkd
+helps when mail comes from **many places**, or from places that can't easily
+talk to Postmark.
+
+| | Postmark directly | With postmarkd |
+| --- | --- | --- |
+| **Server token** | Copied into every app, container and CI secret. Rotating it means touching all of them. | Lives in one place (a systemd credential or one Secret). Apps get nothing, or their own client token that you can revoke alone. |
+| **System mail** (cron, `mail`, PHP `mail()`, git, monitoring tools) | Needs a local MTA such as Postfix set up as an authenticated TLS relay. | Symlink as `sendmail`. Done. |
+| **Legacy or SMTP-only apps** | Must be configured for Postmark's SMTP host, TLS and credentials. | `localhost:2525`, no credentials, no TLS. |
+| **Shell scripts** | Hand-written `curl` with the token and JSON escaping. | `echo body \| postmarkd send -to … -subject …` |
+| **Defaults and rules** (From address, message stream, validation) | Repeated in each app. | Set once for every app on the host. |
+| **Tests and CI** | Postmark's test token or blackhole address. Still needs network and an account, and you can't easily read back what was sent. | `POSTMARKD_BLACKHOLE=true`: no account, no network, and tests can read what was "sent". |
+| **Request latency** | Every send waits on a round trip to Postmark. | Over a local socket, or `?async=true` returns immediately while postmarkd sends in the background. |
+| **Load on Postmark** | Each app opens its own connections and does its own retries. | Shared keep-alive connections, one concurrency limit, retries only when safe (no duplicate mail). |
+| **Visibility** | Postmark's activity page. | The same, plus Prometheus metrics for every app on the host. |
+| **DNS setup** | Postmark's dashboard. | `postmarkd check-domain` checks DKIM, Return-Path and DMARC from the command line or CI. |
+
+### When postmarkd is not the right fit
+
+- **One app that already uses a Postmark SDK.** postmarkd would be an extra
+  moving part for little gain.
+- **Serverless** (Lambda, Cloud Functions, Workers). There's nowhere to run a
+  daemon next to the code; call Postmark directly.
+- **Mail must survive a long Postmark outage.** Today postmarkd retries
+  briefly and its async queue is in memory: a crash loses queued mail, and
+  messages that still fail after the retries are dropped and logged. Callers
+  that need guarantees should send synchronously and retry themselves. A
+  disk-backed spool is a planned improvement.
+- **Remote SMTP clients.** postmarkd's SMTP has no TLS, so it's for
+  localhost, unix sockets and private networks. Remote apps should use its
+  HTTP API behind TLS, or Postmark's SMTP directly.
+
+It's one more component to run, but a small one: a single static binary
+with no dependencies and no state on disk.
+
 ## Features
 
 - **Send mail** over HTTP (Postmark-compatible API), SMTP, `sendmail` or the CLI.
