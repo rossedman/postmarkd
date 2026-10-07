@@ -28,7 +28,7 @@ func BenchmarkWrite(b *testing.B) {
 		m.Upstream(ep, "200", time.Second)
 	}
 	b.ReportAllocs()
-	for b.Loop() {
+	for range b.N {
 		m.Write(io.Discard)
 	}
 }

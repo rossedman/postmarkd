@@ -66,7 +66,7 @@ func BenchmarkPrepare(b *testing.B) {
 		b.Run(tc.name, func(b *testing.B) {
 			b.SetBytes(int64(len(tc.body)))
 			b.ReportAllocs()
-			for b.Loop() {
+			for range b.N {
 				if _, _, err := prepare(tc.ep, tc.body, tc.d); err != nil {
 					b.Fatal(err)
 				}

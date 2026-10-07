@@ -52,7 +52,7 @@ Content-Transfer-Encoding: base64
 		b.Run(tc.name, func(b *testing.B) {
 			b.SetBytes(int64(len(tc.raw)))
 			b.ReportAllocs()
-			for b.Loop() {
+			for range b.N {
 				if _, err := Convert(tc.raw, Envelope{}); err != nil {
 					b.Fatal(err)
 				}
