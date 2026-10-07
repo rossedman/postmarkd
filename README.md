@@ -144,6 +144,33 @@ docker run -d -p 8025:8025 -p 2525:2525 -e POSTMARKD_BLACKHOLE=true ghcr.io/ross
 curl -s localhost:8025/blackhole/messages | jq '.Messages[].Message.Subject'
 ```
 
+## Performance
+
+postmarkd is rarely the bottleneck: a send to Postmark takes 100 ms or more,
+while postmarkd's own work takes microseconds. Benchmarks run on every CI
+build, and pull requests fail if they add allocations or make a benchmark
+more than 25% slower.
+
+Measured on a 4 vCPU Intel Xeon @ 2.80GHz with Go 1.24, upstream replaced by
+an instant fake (medians of 6 runs):
+
+| Benchmark | Result | Before optimizing |
+| --- | --- | --- |
+| End to end over the unix socket (client + daemon on the same 4 CPUs) | **33,700 messages/s**, 30 µs each | 21,600/s |
+| Full relay: client → postmarkd → pooled HTTP → fake Postmark | **15,400 messages/s** | 13,100/s |
+| Batch of 500 through the HTTP handler | **~115,000 messages/s**, 4.3 ms per batch | 7.0 ms |
+| Validate and apply defaults to one message | **4.4 µs**, 6 allocations | 17.8 µs, 66 |
+| Same for a 500-message batch | **4.0 ms**, 172 KB | 9.7 ms, 2 MB |
+| SMTP message → Postmark (MIME parse + send) | **22 µs** | 36 µs |
+| MIME conversion, 100 KB PDF attachment | **0.7 ms**, 190 MB/s | 1.25 ms |
+| Recording metrics for a request (lock-free) | **215 ns**, 0 allocations | 293 ns |
+| Prometheus scrape | **13 µs**, 5 allocations | 67 µs, 386 |
+
+In practice, throughput is set by `POSTMARKD_MAX_CONCURRENCY` ÷ Postmark's
+latency (128 ÷ 0.25 s ≈ 500 requests/s, or up to 256,000 messages/s with
+500-message batches) and by your Postmark account's limits. Details, what each
+benchmark measures and how to run them: [docs/benchmarks.md](docs/benchmarks.md).
+
 ## Before you send: make your domain trusted
 
 Postmark signs your mail with **DKIM** once you add DNS records for your
@@ -168,6 +195,7 @@ these mean.
 - [Configuration](docs/configuration.md): every option, secrets
 - [HTTP API reference](docs/api.md)
 - [Deployment and operations](docs/deployment.md): systemd, sockets, hardening, scaling, metrics
+- [Benchmarks](docs/benchmarks.md)
 
 ## Contributing
 
