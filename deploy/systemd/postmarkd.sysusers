@@ -1,0 +1,2 @@
+# systemd-sysusers(8) entry; installed as /usr/lib/sysusers.d/postmarkd.conf
+u postmarkd - "postmarkd mail relay" - -

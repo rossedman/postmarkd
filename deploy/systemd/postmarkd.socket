@@ -1,0 +1,22 @@
+# Optional socket activation. When enabled, systemd owns the socket and
+# starts postmarkd on the first connection; POSTMARKD_LISTEN is ignored.
+#
+#   systemctl enable --now postmarkd.socket
+#
+# Clients need to be in the postmarkd group (or adjust SocketGroup=/SocketMode=).
+[Unit]
+Description=postmarkd API socket
+Documentation=https://github.com/rossedman/postmarkd
+
+[Socket]
+ListenStream=/run/postmarkd/postmarkd.sock
+SocketUser=postmarkd
+SocketGroup=postmarkd
+SocketMode=0660
+DirectoryMode=0755
+# Listen on TCP as well (or instead):
+#ListenStream=127.0.0.1:8025
+Backlog=4096
+
+[Install]
+WantedBy=sockets.target

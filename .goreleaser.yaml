@@ -1,0 +1,49 @@
+version: 2
+
+builds:
+  - main: ./cmd/postmarkd
+    binary: postmarkd
+    env: [CGO_ENABLED=0]
+    goos: [linux]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags: ["-s -w -X main.version={{.Version}}"]
+
+archives:
+  - files:
+      - LICENSE
+      - README.md
+      - docs/*
+      - deploy/**/*
+
+checksum:
+  name_template: checksums.txt
+
+nfpms:
+  - package_name: postmarkd
+    vendor: postmarkd
+    homepage: https://github.com/rossedman/postmarkd
+    maintainer: postmarkd maintainers
+    description: A small systemd daemon exposing a Postmark-compatible mail API over a unix socket or TCP.
+    license: MIT
+    formats: [deb, rpm]
+    bindir: /usr/bin
+    contents:
+      - src: deploy/systemd/postmarkd.service
+        dst: /usr/lib/systemd/system/postmarkd.service
+      - src: deploy/systemd/postmarkd.socket
+        dst: /usr/lib/systemd/system/postmarkd.socket
+      - src: deploy/systemd/postmarkd.sysusers
+        dst: /usr/lib/sysusers.d/postmarkd.conf
+      - src: deploy/postmarkd.conf
+        dst: /etc/postmarkd/postmarkd.conf
+        type: config|noreplace
+        file_info:
+          mode: 0640
+    scripts:
+      postinstall: deploy/packaging/postinstall.sh
+
+changelog:
+  sort: asc
+  filters:
+    exclude: ["^docs:", "^test:", "^ci:"]
