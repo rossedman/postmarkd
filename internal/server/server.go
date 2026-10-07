@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -17,10 +18,13 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/rossedman/postmarkd/internal/blackhole"
 	"github.com/rossedman/postmarkd/internal/config"
 	"github.com/rossedman/postmarkd/internal/metrics"
 	"github.com/rossedman/postmarkd/internal/postmark"
 	"github.com/rossedman/postmarkd/internal/queue"
+	"github.com/rossedman/postmarkd/internal/rfc822"
+	"github.com/rossedman/postmarkd/internal/smtpd"
 )
 
 // Sender posts a JSON body to a Postmark API path.
@@ -73,6 +77,15 @@ func New(cfg config.Config, sender Sender, m *metrics.Metrics, log *slog.Logger)
 		}
 		io.WriteString(w, "ready\n")
 	})
+	if bh, ok := sender.(*blackhole.Sender); ok {
+		mux.Handle("GET /blackhole/messages", s.authenticate(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			writeJSON(w, http.StatusOK, map[string]any{"Messages": bh.Messages()})
+		})))
+		mux.Handle("DELETE /blackhole/messages", s.authenticate(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			bh.Reset()
+			w.WriteHeader(http.StatusNoContent)
+		})))
+	}
 	mux.HandleFunc("GET /metrics", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 		m.Write(w)
@@ -129,7 +142,13 @@ func (s *Server) send(ep endpoint) http.HandlerFunc {
 			return
 		}
 
-		out, n, aerr := prepare(ep, body, s.defaults)
+		d := s.defaults
+		if stream := r.Header.Get("X-Postmarkd-Stream"); stream != "" {
+			d.MessageStream = stream
+		} else if stream := r.URL.Query().Get("stream"); stream != "" {
+			d.MessageStream = stream
+		}
+		out, n, aerr := prepare(ep, body, d)
 		if aerr != nil {
 			fail(aerr)
 			return
@@ -210,11 +229,72 @@ func (s *Server) deliver(ctx context.Context, j queue.Job) {
 		return
 	}
 	for _, ep := range endpoints {
-		if ep.path == j.Path {
+		if ep.name == j.Endpoint {
 			s.forward(ctx, ep, j.Body, j.Messages, log)
 			return
 		}
 	}
+}
+
+var smtpEndpoint = endpoint{"smtp", "/email", kindEmail}
+
+// HandleSMTP converts a message received over SMTP (or from the sendmail
+// command) and sends it synchronously, mapping the outcome to SMTP replies
+// so the client knows whether to retry.
+func (s *Server) HandleSMTP(ctx context.Context, env smtpd.Envelope, data []byte) (string, error) {
+	status := http.StatusOK
+	defer func() { s.metrics.Request(smtpEndpoint.name, status) }()
+	reject := func(st, code int, msg string) (string, error) {
+		status = st
+		return "", &smtpd.Error{Code: code, Message: msg}
+	}
+
+	msg, err := rfc822.Convert(data, rfc822.Envelope{From: env.From, To: env.To})
+	if err != nil {
+		return reject(http.StatusUnprocessableEntity, 554, "5.6.0 "+err.Error())
+	}
+	body, _ := json.Marshal(msg)
+	out, n, aerr := prepare(smtpEndpoint, body, s.defaults)
+	if aerr != nil {
+		return reject(aerr.Status, 554, "5.6.0 "+aerr.Message)
+	}
+	rid := newID()
+	log := s.log.With("request_id", rid, "endpoint", smtpEndpoint.name)
+	res, err := s.forward(ctx, smtpEndpoint, out, n, log)
+	if err != nil {
+		return reject(http.StatusBadGateway, 451, "4.4.1 Postmark unreachable, try again later")
+	}
+	status = res.StatusCode
+	var r sendResult
+	json.Unmarshal(res.Body, &r)
+	switch {
+	case res.StatusCode == 200 && r.ErrorCode == 0:
+		var ok struct{ MessageID string }
+		json.Unmarshal(res.Body, &ok)
+		return ok.MessageID, nil
+	case res.StatusCode == 429 || res.StatusCode >= 500:
+		return "", &smtpd.Error{Code: 451, Message: fmt.Sprintf("4.3.0 Postmark error %d: %s", r.ErrorCode, r.Message)}
+	default:
+		return "", &smtpd.Error{Code: 554, Message: fmt.Sprintf("5.7.1 Postmark error %d: %s", r.ErrorCode, r.Message)}
+	}
+}
+
+// SMTPAuth checks SMTP AUTH credentials against the client tokens; the
+// token is the password and the username is ignored. It returns nil when
+// authentication is disabled.
+func (s *Server) SMTPAuth() func(user, pass string) bool {
+	if len(s.tokens) == 0 {
+		return nil
+	}
+	return func(_, pass string) bool { return s.validToken(pass) }
+}
+
+func (s *Server) validToken(got string) bool {
+	ok := 0
+	for _, t := range s.tokens {
+		ok |= subtle.ConstantTimeCompare([]byte(got), t)
+	}
+	return got != "" && ok == 1
 }
 
 // authenticate enforces POSTMARKD_AUTH_TOKENS. Clients may present a token
@@ -231,11 +311,7 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 				got = strings.TrimSpace(v)
 			}
 		}
-		ok := 0
-		for _, t := range s.tokens {
-			ok |= subtle.ConstantTimeCompare([]byte(got), t)
-		}
-		if got == "" || ok == 0 {
+		if !s.validToken(got) {
 			s.metrics.Request("auth", http.StatusUnauthorized)
 			w.Header().Set("WWW-Authenticate", `Bearer realm="postmarkd"`)
 			writeJSON(w, http.StatusUnauthorized, &apiError{ErrorCode: codeUnauthorized, Message: "missing or invalid API token"})
@@ -273,6 +349,10 @@ func requestID(r *http.Request) string {
 	if id := r.Header.Get("X-Request-Id"); id != "" && len(id) <= 128 {
 		return id
 	}
+	return newID()
+}
+
+func newID() string {
 	var b [12]byte
 	rand.Read(b[:])
 	return hex.EncodeToString(b[:])

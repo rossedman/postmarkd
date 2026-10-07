@@ -6,7 +6,8 @@
 | --- | --- |
 | `/usr/bin/postmarkd` | The daemon. |
 | `/usr/lib/systemd/system/postmarkd.service` | Service unit (`Type=notify`, hardened). |
-| `/usr/lib/systemd/system/postmarkd.socket` | Optional socket-activation unit. |
+| `/usr/lib/systemd/system/postmarkd.socket` | Optional socket-activation unit (HTTP API). |
+| `/usr/lib/systemd/system/postmarkd-smtp.socket` | Optional socket-activation unit for SMTP (e.g. port 25). |
 | `/usr/lib/sysusers.d/postmarkd.conf` | Creates the `postmarkd` user and group. |
 | `/etc/postmarkd/postmarkd.conf` | Configuration (`root:postmarkd 0640`). |
 | `/etc/postmarkd/server-token` | Postmark server token (`root:root 0600`), loaded as a systemd credential. |
@@ -63,6 +64,16 @@ sudo systemctl edit postmarkd.socket
 SocketGroup=www-data
 SocketMode=0660
 ```
+
+For SMTP on port 25, enable `postmarkd-smtp.socket` and tell the service
+about both sockets (`systemctl edit postmarkd.service`):
+
+```ini
+[Service]
+Sockets=postmarkd.socket postmarkd-smtp.socket
+```
+
+systemd binds port 25 itself, so postmarkd still runs unprivileged.
 
 ### Granting access to the socket
 

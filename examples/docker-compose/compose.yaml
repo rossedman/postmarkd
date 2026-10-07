@@ -1,0 +1,53 @@
+# postmarkd as a sidecar with Docker Compose.
+#
+#   POSTMARK_SERVER_TOKEN=your-server-token docker compose up
+#
+# Without a token, Postmark's test token is used: the API validates mail but
+# never delivers it. Set POSTMARKD_BLACKHOLE=true to skip Postmark entirely.
+services:
+  postmarkd:
+    image: ghcr.io/rossedman/postmarkd:latest
+    # build: ../..            # or build from this repository
+    environment:
+      POSTMARKD_SERVER_TOKEN: ${POSTMARK_SERVER_TOKEN:-POSTMARK_API_TEST}
+      POSTMARKD_DEFAULT_FROM: ${MAIL_FROM:-noreply@example.com}
+      # HTTP API on a shared unix socket and on the compose network.
+      POSTMARKD_LISTEN: unix:/run/postmarkd/postmarkd.sock,:8025
+      # SMTP for apps that only speak SMTP.
+      POSTMARKD_SMTP_LISTEN: :2525
+      # The app runs as a different user; the socket is only reachable
+      # through the shared volume.
+      POSTMARKD_SOCKET_MODE: "0666"
+      # POSTMARKD_BLACKHOLE: "true"
+    volumes:
+      - postmarkd-socket:/run/postmarkd
+    restart: unless-stopped
+    # No ports are published: only services on this network can send mail.
+
+  app:
+    image: alpine:3.20
+    depends_on:
+      postmarkd:
+        condition: service_healthy
+    volumes:
+      - postmarkd-socket:/run/postmarkd
+    environment:
+      # What a real app would read:
+      POSTMARKD_ADDR: /run/postmarkd/postmarkd.sock   # HTTP over the socket
+      SMTP_HOST: postmarkd                             # or SMTP
+      SMTP_PORT: "2525"
+    # Demo: send one message over HTTP, then idle. With curl installed the
+    # socket works too:
+    #   curl --unix-socket /run/postmarkd/postmarkd.sock http://postmarkd/email -d '{…}'
+    command:
+      - sh
+      - -c
+      - |
+        wget -qO- http://postmarkd:8025/email \
+          --post-data '{"To":"test@blackhole.postmarkapp.com","Subject":"Hello from Compose","TextBody":"It works."}'
+        echo
+        ls -l /run/postmarkd
+        sleep infinity
+
+volumes:
+  postmarkd-socket:

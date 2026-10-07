@@ -36,15 +36,27 @@ systemd-socket-activate -l /tmp/postmarkd.sock \
 ## Layout
 
 ```
-cmd/postmarkd/       main: flags, listeners, signals, lifecycle
+cmd/postmarkd/       commands: serve (daemon), send, sendmail, check-domain, healthcheck
 internal/config/     configuration loading and validation
-internal/server/     HTTP API, validation, auth, async dispatch
+internal/server/     HTTP API, SMTP delivery, validation, auth, async dispatch
+internal/smtpd/      minimal ESMTP server
+internal/rfc822/     MIME message -> Postmark message conversion
+internal/blackhole/  fake Postmark for blackhole mode
+internal/client/     client for a running daemon (used by the CLI)
+internal/domaincheck/ DKIM / Return-Path / DMARC DNS checks
 internal/postmark/   Postmark HTTP client (pooling, concurrency limit, retries)
 internal/queue/      bounded in-memory work queue
 internal/metrics/    Prometheus text-format metrics
 internal/systemd/    sd_notify, socket activation, watchdog
 deploy/              systemd units, sysusers entry, example config
+examples/            Docker Compose, Kubernetes, CI examples
 docs/                user documentation
+```
+
+Run with no Postmark account at all:
+
+```sh
+POSTMARKD_BLACKHOLE=true POSTMARKD_SMTP_LISTEN=127.0.0.1:2525 go run ./cmd/postmarkd
 ```
 
 ## Guidelines

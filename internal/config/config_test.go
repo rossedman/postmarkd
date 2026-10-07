@@ -33,8 +33,8 @@ POSTMARKD_AUTH_TOKENS=a, b,c
 	if cfg.ServerToken != "from-env" {
 		t.Errorf("env should override file, got %q", cfg.ServerToken)
 	}
-	if p, ok := cfg.UnixSocket(); !ok || p != "/run/postmarkd/postmarkd.sock" {
-		t.Errorf("UnixSocket() = %q, %v", p, ok)
+	if a := ParseAddrs(cfg.Listen); len(a) != 1 || a[0] != (Addr{"unix", "/run/postmarkd/postmarkd.sock"}) {
+		t.Errorf("ParseAddrs = %v", a)
 	}
 	if cfg.SocketMode != 0o600 || cfg.UpstreamTimeout != 5*time.Second || cfg.Workers != 7 {
 		t.Errorf("unexpected config: %+v", cfg)
@@ -84,11 +84,21 @@ func TestValidation(t *testing.T) {
 	}
 }
 
-func TestTCPListen(t *testing.T) {
-	if _, ok := (Config{Listen: "127.0.0.1:8025"}).UnixSocket(); ok {
-		t.Error("TCP address treated as unix socket")
+func TestParseAddrs(t *testing.T) {
+	got := ParseAddrs("127.0.0.1:8025, unix:/run/a.sock,/run/b.sock,")
+	want := []Addr{{"tcp", "127.0.0.1:8025"}, {"unix", "/run/a.sock"}, {"unix", "/run/b.sock"}}
+	if len(got) != len(want) {
+		t.Fatalf("got %v", got)
 	}
-	if p, ok := (Config{Listen: "/tmp/x.sock"}).UnixSocket(); !ok || p != "/tmp/x.sock" {
-		t.Error("absolute path should be a unix socket")
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("addr %d = %v, want %v", i, got[i], want[i])
+		}
+	}
+}
+
+func TestBlackholeNeedsNoToken(t *testing.T) {
+	if _, err := Load("", []string{"POSTMARKD_BLACKHOLE=true"}); err != nil {
+		t.Fatal(err)
 	}
 }

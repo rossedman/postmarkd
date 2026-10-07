@@ -1,0 +1,51 @@
+# Alternative: one shared postmarkd for the whole cluster/namespace instead of
+# a sidecar per pod. Clients must authenticate with a token.
+#
+#   kubectl create secret generic postmark \
+#     --from-literal=server-token=YOUR_TOKEN \
+#     --from-literal=auth-tokens="token-for-app-a,token-for-app-b"
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postmarkd
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: postmarkd }
+  template:
+    metadata:
+      labels: { app: postmarkd }
+    spec:
+      terminationGracePeriodSeconds: 45 # > POSTMARKD_SHUTDOWN_TIMEOUT so the queue drains
+      containers:
+        - name: postmarkd
+          image: ghcr.io/rossedman/postmarkd:latest
+          env:
+            - name: POSTMARKD_SERVER_TOKEN
+              valueFrom: { secretKeyRef: { name: postmark, key: server-token } }
+            - name: POSTMARKD_AUTH_TOKENS
+              valueFrom: { secretKeyRef: { name: postmark, key: auth-tokens } }
+            - name: POSTMARKD_DEFAULT_FROM
+              value: noreply@example.com
+          ports:
+            - { name: http, containerPort: 8025 }
+            - { name: smtp, containerPort: 2525 }
+          readinessProbe:
+            httpGet: { path: /readyz, port: http }
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postmarkd
+spec:
+  selector: { app: postmarkd }
+  ports:
+    - { name: http, port: 8025, targetPort: http }
+    - { name: smtp, port: 2525, targetPort: smtp }

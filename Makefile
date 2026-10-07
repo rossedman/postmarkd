@@ -8,7 +8,7 @@ UNITDIR    ?= $(PREFIX)/lib/systemd/system
 SYSUSERSDIR?= $(PREFIX)/lib/sysusers.d
 DESTDIR    ?=
 
-.PHONY: all build test race vet fmt lint install uninstall clean
+.PHONY: all build test race vet fmt lint install install-sendmail uninstall docker clean
 
 all: vet test build
 
@@ -34,6 +34,7 @@ install: build
 	install -Dm0755 bin/$(BINARY) $(DESTDIR)$(PREFIX)/bin/$(BINARY)
 	install -Dm0644 deploy/systemd/postmarkd.service $(DESTDIR)$(UNITDIR)/postmarkd.service
 	install -Dm0644 deploy/systemd/postmarkd.socket $(DESTDIR)$(UNITDIR)/postmarkd.socket
+	install -Dm0644 deploy/systemd/postmarkd-smtp.socket $(DESTDIR)$(UNITDIR)/postmarkd-smtp.socket
 	install -Dm0644 deploy/systemd/postmarkd.sysusers $(DESTDIR)$(SYSUSERSDIR)/postmarkd.conf
 	@if [ ! -e $(DESTDIR)$(SYSCONFDIR)/postmarkd/postmarkd.conf ]; then \
 		install -Dm0640 deploy/postmarkd.conf $(DESTDIR)$(SYSCONFDIR)/postmarkd/postmarkd.conf; \
@@ -45,11 +46,21 @@ install: build
 	@if [ "$(PREFIX)" != "/usr" ]; then \
 		sed -i 's|/usr/bin/postmarkd|$(PREFIX)/bin/postmarkd|' $(DESTDIR)$(UNITDIR)/postmarkd.service; fi
 
+# Make every program that calls sendmail(8) deliver through postmarkd.
+install-sendmail:
+	@if [ -e $(DESTDIR)/usr/sbin/sendmail ] && [ "$$(readlink -f $(DESTDIR)/usr/sbin/sendmail)" != "$(PREFIX)/bin/$(BINARY)" ]; then \
+		echo "/usr/sbin/sendmail already exists (another MTA?). Remove it first."; exit 1; fi
+	ln -sf $(PREFIX)/bin/$(BINARY) $(DESTDIR)/usr/sbin/sendmail
+
 uninstall:
 	rm -f $(DESTDIR)$(PREFIX)/bin/$(BINARY) \
 		$(DESTDIR)$(UNITDIR)/postmarkd.service \
 		$(DESTDIR)$(UNITDIR)/postmarkd.socket \
+		$(DESTDIR)$(UNITDIR)/postmarkd-smtp.socket \
 		$(DESTDIR)$(SYSUSERSDIR)/postmarkd.conf
+
+docker:
+	docker build --build-arg VERSION=$(VERSION) -t postmarkd:$(VERSION) .
 
 clean:
 	rm -rf bin dist

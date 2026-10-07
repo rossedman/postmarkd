@@ -27,4 +27,16 @@ jobs:
       - name: Verify systemd units
         run: |
           sudo install -m0755 bin/postmarkd /usr/bin/postmarkd
-          systemd-analyze verify deploy/systemd/postmarkd.service deploy/systemd/postmarkd.socket
+          systemd-analyze verify deploy/systemd/*.service deploy/systemd/*.socket
+
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t postmarkd:ci .
+      - name: Smoke test
+        run: |
+          docker run -d --name pm -p 8025:8025 -e POSTMARKD_BLACKHOLE=true -e POSTMARKD_DEFAULT_FROM=ci@example.com postmarkd:ci
+          for i in $(seq 20); do docker exec pm /usr/bin/postmarkd healthcheck && break; sleep 1; done
+          curl -sf localhost:8025/email -d '{"To":"a@example.com","Subject":"ci","TextBody":"hi"}'
+          curl -sf localhost:8025/blackhole/messages | grep -q '"Subject":"ci"'

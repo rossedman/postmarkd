@@ -1,0 +1,24 @@
+# Optional SMTP socket activation, e.g. to accept mail on port 25 as a local
+# relay without giving postmarkd any privileges (systemd binds the port).
+#
+# The service only receives sockets it is told about, so also run:
+#   systemctl edit postmarkd.service
+# and add:
+#   [Service]
+#   Sockets=postmarkd.socket postmarkd-smtp.socket
+#
+#   systemctl enable --now postmarkd-smtp.socket
+[Unit]
+Description=postmarkd SMTP socket
+Documentation=https://github.com/rossedman/postmarkd
+
+[Socket]
+ListenStream=127.0.0.1:25
+ListenStream=[::1]:25
+# postmarkd serves SMTP on sockets whose name contains "smtp".
+FileDescriptorName=smtp
+Service=postmarkd.service
+Backlog=1024
+
+[Install]
+WantedBy=sockets.target

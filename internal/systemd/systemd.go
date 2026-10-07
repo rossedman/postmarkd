@@ -17,10 +17,17 @@ import (
 // listenFDsStart is SD_LISTEN_FDS_START, the first passed file descriptor.
 const listenFDsStart = 3
 
+// Listener is a socket passed by systemd with its FileDescriptorName=
+// (by default the name of the .socket unit).
+type Listener struct {
+	net.Listener
+	Name string
+}
+
 // Listeners returns the sockets passed by systemd socket activation, or nil
 // if the process was not socket activated. The LISTEN_* variables are removed
 // from the environment so they are not inherited by child processes.
-func Listeners() ([]net.Listener, error) {
+func Listeners() ([]Listener, error) {
 	defer func() {
 		os.Unsetenv("LISTEN_PID")
 		os.Unsetenv("LISTEN_FDS")
@@ -37,7 +44,7 @@ func Listeners() ([]net.Listener, error) {
 	}
 	names := strings.Split(os.Getenv("LISTEN_FDNAMES"), ":")
 
-	listeners := make([]net.Listener, 0, n)
+	listeners := make([]Listener, 0, n)
 	for i := 0; i < n; i++ {
 		fd := listenFDsStart + i
 		syscall.CloseOnExec(fd)
@@ -54,7 +61,7 @@ func Listeners() ([]net.Listener, error) {
 			}
 			return nil, fmt.Errorf("socket activation: fd %d (%s): %w", fd, name, err)
 		}
-		listeners = append(listeners, l)
+		listeners = append(listeners, Listener{l, name})
 	}
 	return listeners, nil
 }

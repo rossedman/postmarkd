@@ -1,0 +1,32 @@
+# Run postmarkd in blackhole mode as a CI service: your tests send mail as
+# usual and then assert on what was "sent" without touching Postmark.
+name: Integration tests
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postmarkd:
+        image: ghcr.io/rossedman/postmarkd:latest
+        env:
+          POSTMARKD_BLACKHOLE: "true"
+          POSTMARKD_DEFAULT_FROM: noreply@example.com
+        ports:
+          - 8025:8025 # HTTP API
+          - 2525:2525 # SMTP
+        options: >-
+          --health-cmd "/usr/bin/postmarkd healthcheck"
+          --health-interval 2s --health-timeout 2s --health-retries 15
+    env:
+      POSTMARK_API_URL: http://localhost:8025 # point your Postmark SDK here
+      SMTP_HOST: localhost
+      SMTP_PORT: "2525"
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./run-your-tests.sh
+      - name: Assert the welcome email was sent
+        run: |
+          curl -s localhost:8025/blackhole/messages \
+            | jq -e '.Messages[] | select(.Message.Subject == "Welcome!")'

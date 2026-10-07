@@ -24,8 +24,13 @@ postmarkd -config /etc/postmarkd/postmarkd.conf -check-config
 
 | Key | Default | Description |
 | --- | --- | --- |
-| `POSTMARKD_LISTEN` | `127.0.0.1:8025` | TCP address (`host:port`, `:port`) or unix socket (`unix:/path` or an absolute path). Ignored when systemd passes sockets (socket activation). |
-| `POSTMARKD_SOCKET_MODE` | `0660` | Octal permissions for a unix socket created by postmarkd. |
+| `POSTMARKD_LISTEN` | `127.0.0.1:8025` | HTTP API addresses, comma separated: TCP (`host:port`, `:port`) or unix sockets (`unix:/path` or an absolute path). Ignored when systemd passes HTTP sockets. |
+| `POSTMARKD_SMTP_LISTEN` | — | SMTP addresses, same forms. Empty disables SMTP. See [SMTP](sending.md#smtp). |
+| `POSTMARKD_SMTP_HOSTNAME` | system hostname | Name announced in the SMTP greeting. |
+| `POSTMARKD_SOCKET_MODE` | `0660` | Octal permissions for unix sockets created by postmarkd. |
+
+With socket activation, sockets whose `FileDescriptorName=` contains `smtp`
+serve SMTP and all others serve HTTP (see `postmarkd-smtp.socket`).
 
 When postmarkd creates a unix socket it removes a stale socket file left by an
 unclean exit, but refuses to start if another process is still listening on it.
@@ -41,6 +46,13 @@ The socket is removed on shutdown.
 | `POSTMARKD_DEFAULT_FROM` | — | `From` used when a message has none. |
 | `POSTMARKD_DEFAULT_MESSAGE_STREAM` | — | `MessageStream` used when a message has none. Postmark itself defaults to `outbound`. |
 
+### Testing
+
+| Key | Default | Description |
+| --- | --- | --- |
+| `POSTMARKD_BLACKHOLE` | `false` | Accept mail but never send it; no server token needed. See [Testing](testing.md). |
+| `POSTMARKD_BLACKHOLE_KEEP` | `1000` | Messages kept for `GET /blackhole/messages`. |
+
 ### Client authentication
 
 | Key | Default | Description |
@@ -49,8 +61,10 @@ The socket is removed on shutdown.
 | `POSTMARKD_AUTH_TOKENS_FILE` | — | Read tokens from a file: one or more per line, `#` starts a comment. |
 
 Clients send a token as `Authorization: Bearer <token>` or as
-`X-Postmark-Server-Token: <token>` (so Postmark SDKs work unchanged). Giving each
-application its own token makes revocation easy.
+`X-Postmark-Server-Token: <token>` (so Postmark SDKs work unchanged). SMTP
+clients use `AUTH PLAIN` or `AUTH LOGIN` with any username and the token as
+password (not required on unix sockets). The CLI reads `$POSTMARKD_TOKEN`.
+Giving each application its own token makes revocation easy.
 
 Leaving authentication off is reasonable for a unix socket, where file
 permissions control access. **Always enable it when listening on TCP** on
@@ -109,8 +123,14 @@ POSTMARKD_LOG_FORMAT=json
 
 ## Command-line flags
 
+`postmarkd` (or `postmarkd serve`) runs the daemon:
+
 | Flag | Description |
 | --- | --- |
 | `-config PATH` | Load a config file. |
 | `-check-config` | Validate configuration and exit (status 2 if invalid). |
 | `-version` | Print the version and exit. |
+
+Client commands (`send`, `sendmail`, `healthcheck`) are configured with
+`POSTMARKD_ADDR`, `POSTMARKD_TOKEN` and `POSTMARKD_STREAM`; see
+[Sending mail](sending.md#where-the-daemon-is).

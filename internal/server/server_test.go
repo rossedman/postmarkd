@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -13,9 +14,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/rossedman/postmarkd/internal/blackhole"
 	"github.com/rossedman/postmarkd/internal/config"
 	"github.com/rossedman/postmarkd/internal/metrics"
 	"github.com/rossedman/postmarkd/internal/postmark"
+	"github.com/rossedman/postmarkd/internal/smtpd"
 )
 
 // fakePostmark records requests and answers like the Postmark API.
@@ -277,5 +280,62 @@ func TestMethodNotAllowed(t *testing.T) {
 	s, _, _ := setup(t, nil)
 	if w := do(s, "GET", "/email", ""); w.Code != 405 {
 		t.Errorf("status = %d", w.Code)
+	}
+}
+
+func TestStreamOverride(t *testing.T) {
+	s, fake, _ := setup(t, func(c *config.Config) { c.DefaultMessageStream = "outbound" })
+	do(s, "POST", "/email/batch?stream=broadcast", `[{"From":"f@example.com","To":"a@example.com","TextBody":"x"},{"From":"f@example.com","To":"b@example.com","TextBody":"x","MessageStream":"alerts"}]`)
+	var sent []map[string]any
+	json.Unmarshal(fake.last(t).body, &sent)
+	if sent[0]["MessageStream"] != "broadcast" || sent[1]["MessageStream"] != "alerts" {
+		t.Errorf("streams: %v", sent)
+	}
+}
+
+func TestBlackholeInbox(t *testing.T) {
+	cfg := config.Default()
+	cfg.Blackhole = true
+	bh := blackhole.New(10)
+	s := New(cfg, bh, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	w := do(s, "POST", "/email", `{"From":"f@example.com","To":"a@example.com","TextBody":"x"}`)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"MessageID"`) {
+		t.Fatalf("send: %d %s", w.Code, w.Body)
+	}
+	w = do(s, "GET", "/blackhole/messages", "")
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `a@example.com`) {
+		t.Fatalf("inbox: %d %s", w.Code, w.Body)
+	}
+	if w = do(s, "DELETE", "/blackhole/messages", ""); w.Code != 204 || len(bh.Messages()) != 0 {
+		t.Fatalf("reset: %d", w.Code)
+	}
+}
+
+func TestHandleSMTP(t *testing.T) {
+	s, fake, m := setup(t, func(c *config.Config) { c.DefaultFrom = "noreply@example.com" })
+	raw := "To: a@example.com\r\nSubject: Hi\r\nX-PM-Message-Stream: alerts\r\n\r\nhello\r\n"
+	id, err := s.HandleSMTP(context.Background(), smtpd.Envelope{To: []string{"a@example.com"}}, []byte(raw))
+	if err != nil || id != "b7bc2f4a" {
+		t.Fatalf("id=%q err=%v", id, err)
+	}
+	var sent map[string]any
+	json.Unmarshal(fake.last(t).body, &sent)
+	if sent["From"] != "noreply@example.com" || sent["MessageStream"] != "alerts" || sent["TextBody"] != "hello\r\n" {
+		t.Errorf("sent %v", sent)
+	}
+	if m.MessagesSent.Load() != 1 {
+		t.Error("not counted")
+	}
+
+	fake.status = 422
+	_, err = s.HandleSMTP(context.Background(), smtpd.Envelope{To: []string{"a@example.com"}}, []byte(raw))
+	var se *smtpd.Error
+	if !errors.As(err, &se) || se.Code != 554 || !strings.Contains(se.Message, "inactive") {
+		t.Errorf("err = %v", err)
+	}
+
+	_, err = s.HandleSMTP(context.Background(), smtpd.Envelope{To: []string{"a@example.com"}}, []byte("To: a@example.com\r\nSubject: x\r\n\r\n"))
+	if !errors.As(err, &se) || se.Code != 554 {
+		t.Errorf("empty body: err = %v", err)
 	}
 }

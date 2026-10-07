@@ -3,150 +3,133 @@
 [![CI](https://github.com/rossedman/postmarkd/actions/workflows/ci.yml/badge.svg)](https://github.com/rossedman/postmarkd/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**postmarkd** is a small, fast systemd daemon that gives every application on a
-host a local mail API, and delivers the mail through [Postmark](https://postmarkapp.com).
-
-Applications talk to a unix socket (or a TCP port). postmarkd holds the Postmark
-credentials, applies defaults, limits and retries upstream calls, and can
-queue mail so callers never wait on the network.
+**Sending mail should be one line.** postmarkd is a small daemon that runs next
+to your apps (as a systemd service or a container sidecar) and delivers mail
+through [Postmark](https://postmarkapp.com). Apps hand it mail however they
+like: HTTP, SMTP, the `sendmail` command or a CLI. postmarkd holds the
+credentials, fills in defaults, sends in parallel and retries safely.
 
 ```sh
-curl --unix-socket /run/postmarkd/postmarkd.sock http://localhost/email \
-  -d '{"To": "ada@example.com", "Subject": "Hello", "TextBody": "Sent via postmarkd"}'
+echo "The nightly backup finished." | postmarkd send -to ops@example.com -subject "Backup OK"
+```
+
+## Ways to send
+
+| From | How |
+| --- | --- |
+| **Shell scripts** | `postmarkd send -to … -subject …` (body from stdin or `-text`/`-html`, `-attach` files) |
+| **Anything that uses `sendmail`**: cron, `mail`/`mailx`, PHP `mail()`, git, logwatch, smartd | Symlink postmarkd as `/usr/sbin/sendmail`. No other change needed. |
+| **Apps that speak SMTP**: Rails, Django, Laravel, WordPress, Grafana, Gitea… | Set `POSTMARKD_SMTP_LISTEN=127.0.0.1:2525` (on by default in the container) and point them at it. No username, password or TLS needed. |
+| **Apps with a Postmark SDK** | Change the SDK's base URL to postmarkd |
+| **Any HTTP client** | `curl --unix-socket /run/postmarkd/postmarkd.sock http://localhost/email -d '{…}'` |
+
+All of them end up in the same place: validated, defaulted, rate-limited and
+sent to Postmark over pooled HTTPS connections.
+
+```
+ shell / cron / PHP ──sendmail──┐
+ Rails / Django ─────SMTP :2525─┤
+ Postmark SDK ───HTTP (socket)──┼──▶ postmarkd ──HTTPS──▶ Postmark ──▶ inbox
+ curl ───────────HTTP :8025─────┘      │
+                                       ├─ defaults (From, stream), validation
+                                       ├─ parallel sends, safe retries
+                                       ├─ optional async queue
+                                       └─ blackhole mode for tests
 ```
 
 ## Features
 
-- **Postmark-compatible API.** Serves `/email`, `/email/batch`,
-  `/email/withTemplate` and `/email/batchWithTemplates` with Postmark's request
-  and response formats. Existing Postmark SDKs work by changing their base URL.
-- **Unix socket or TCP**, including **systemd socket activation**.
-- **One place for the secret.** Apps never see the Postmark server token;
-  it can be loaded with systemd `LoadCredential=`.
-- **Built for volume.** Pooled keep-alive connections to Postmark, a
-  configurable concurrency cap, safe retries with backoff, and an optional
-  bounded async queue with back-pressure.
-- **Proper systemd citizen.** `Type=notify` readiness, watchdog, graceful
-  drain on stop, journald-friendly logs and a hardened unit file.
-- **Observable.** Prometheus `/metrics`, `/healthz` and `/readyz`.
-- **No dependencies.** A single static Go binary using only the standard library.
+- **Send mail** over HTTP (Postmark-compatible API), SMTP, `sendmail` or the CLI.
+- **Lots of mail, in parallel.** Batches of up to 500 messages per request,
+  up to `POSTMARKD_MAX_CONCURRENCY` requests to Postmark at once over pooled
+  keep-alive connections, and an optional bounded async queue with back-pressure.
+- **Message streams.** Every message can pick its stream (`MessageStream`, the
+  `X-PM-Message-Stream` header, `-stream`, or `?stream=` per request), so
+  transactional and broadcast mail flow side by side, even in one batch.
+- **Black hole for testing.** `POSTMARKD_BLACKHOLE=true` accepts everything,
+  answers exactly like Postmark, sends nothing, and lets your tests read back
+  what was "sent" at `/blackhole/messages`.
+- **DKIM, SPF and DMARC check.** `postmarkd check-domain example.com` tells
+  you which DNS records are missing so your mail doesn't land in spam.
+- **systemd native:** unix socket, socket activation (even port 25 without
+  root), `Type=notify`, watchdog, graceful drain, hardened unit.
+- **Container ready:** a 16 MB non-root image with built-in health check,
+  plus Compose, Kubernetes sidecar and CI examples.
+- **Observable:** Prometheus `/metrics`, `/healthz`, `/readyz`.
+- **No dependencies:** one static Go binary, standard library only.
 
 ## Quick start
 
-### Install
-
-From a [release](https://github.com/rossedman/postmarkd/releases) (`.deb`,
-`.rpm` or tarball), or from source with Go 1.23+:
+### On a server (systemd)
 
 ```sh
 git clone https://github.com/rossedman/postmarkd && cd postmarkd
-sudo make install
-```
-
-This installs `/usr/bin/postmarkd`, the systemd units, a `postmarkd` system
-user and a commented config file at `/etc/postmarkd/postmarkd.conf`.
-
-### Configure
-
-```sh
-# Your Postmark *server* token (Servers → API Tokens in Postmark).
-sudo install -m 0600 /dev/stdin /etc/postmarkd/server-token <<< 'your-server-token'
-
-# Optional: set a default sender in /etc/postmarkd/postmarkd.conf
-#   POSTMARKD_DEFAULT_FROM=noreply@example.com
-```
-
-### Run
-
-```sh
+sudo make install                        # binary, units, user, /etc/postmarkd/postmarkd.conf
+sudo install -m 0600 /dev/stdin /etc/postmarkd/server-token <<< 'your-postmark-server-token'
+sudoedit /etc/postmarkd/postmarkd.conf   # set POSTMARKD_DEFAULT_FROM=noreply@yourdomain.com
 sudo systemctl enable --now postmarkd
-# or start on demand via socket activation:
-sudo systemctl enable --now postmarkd.socket
+
+sudo usermod -aG postmarkd "$USER"       # let your user use the socket (log in again)
+echo "Hello from $(hostname)" | postmarkd send -to you@example.com -subject "It works"
 ```
 
-Allow a local user (for example your web app) to use the socket:
+Make every program on the host send through Postmark:
 
 ```sh
-sudo usermod -aG postmarkd www-data
+sudo make install-sendmail               # /usr/sbin/sendmail -> postmarkd
+echo "Subject: test" | sendmail you@example.com
 ```
 
-### Send
+Release packages (`.deb`, `.rpm`, tarballs) are on the
+[releases page](https://github.com/rossedman/postmarkd/releases).
+
+### In a container
 
 ```sh
-curl --unix-socket /run/postmarkd/postmarkd.sock http://localhost/email \
-  -H 'Content-Type: application/json' \
-  -d '{
-        "From": "noreply@example.com",
-        "To": "ada@example.com",
-        "Subject": "Welcome!",
-        "HtmlBody": "<p>Thanks for signing up.</p>",
-        "TextBody": "Thanks for signing up.",
-        "MessageStream": "outbound"
-      }'
+docker run -d --name postmarkd -p 127.0.0.1:8025:8025 -p 127.0.0.1:2525:2525 \
+  -e POSTMARKD_SERVER_TOKEN=your-postmark-server-token \
+  -e POSTMARKD_DEFAULT_FROM=noreply@yourdomain.com \
+  ghcr.io/rossedman/postmarkd
+
+curl localhost:8025/email -d '{"To":"you@example.com","Subject":"Hi","TextBody":"Hello"}'
 ```
 
-Don't wait for Postmark; queue it and return immediately:
+As a sidecar, see [Containers](docs/containers.md) and the
+[examples](examples/): Docker Compose, Kubernetes native sidecar, GitHub
+Actions service.
+
+### For tests
 
 ```sh
-curl --unix-socket /run/postmarkd/postmarkd.sock 'http://localhost/email?async=true' \
-  -d '{"To": "ada@example.com", "Subject": "Hi", "TextBody": "Queued"}'
-# {"ErrorCode":0,"Message":"Queued","Messages":1,"RequestID":"…"}
+docker run -d -p 8025:8025 -p 2525:2525 -e POSTMARKD_BLACKHOLE=true ghcr.io/rossedman/postmarkd
+# … run your test suite against localhost:8025 or SMTP localhost:2525 …
+curl -s localhost:8025/blackhole/messages | jq '.Messages[].Message.Subject'
 ```
 
-### Run without systemd
+## Before you send: make your domain trusted
+
+Postmark signs your mail with **DKIM** once you add DNS records for your
+domain; a custom **Return-Path** makes **SPF** line up with your domain; and a
+**DMARC** record tells receivers what to do with mail that fails both.
+Gmail and Yahoo require these for bulk senders. Check them in one command:
 
 ```sh
-POSTMARKD_SERVER_TOKEN=your-server-token \
-POSTMARKD_LISTEN=127.0.0.1:8025 \
-POSTMARKD_DEFAULT_FROM=noreply@example.com \
-  postmarkd
+postmarkd check-domain yourdomain.com -account-token "$POSTMARK_ACCOUNT_TOKEN"
 ```
 
-For local development you can use Postmark's test token `POSTMARK_API_TEST`,
-which accepts mail without delivering it.
-
-## Using a Postmark SDK
-
-Point the SDK at postmarkd and give it any value as the server token (or one of
-your `POSTMARKD_AUTH_TOKENS` if you enabled client authentication):
-
-```js
-// Node.js (postmark.js)
-const postmark = require("postmark");
-const client = new postmark.ServerClient("client-token", {
-  requestHost: "127.0.0.1:8025",
-  useHttps: false,
-});
-```
-
-```go
-// Go: any HTTP client works; over a unix socket:
-tr := &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-    return (&net.Dialer{}).DialContext(ctx, "unix", "/run/postmarkd/postmarkd.sock")
-}}
-client := &http.Client{Transport: tr}
-resp, err := client.Post("http://postmarkd/email", "application/json", body)
-```
+It prints each record's status and the exact record to add when one is
+missing. Read [Email authentication](docs/email-authentication.md) for what
+these mean.
 
 ## Documentation
 
-- [Configuration](docs/configuration.md): every option, secrets, precedence
-- [API reference](docs/api.md): endpoints, async mode, errors
-- [Deployment & operations](docs/deployment.md): systemd, sockets, hardening, scaling, metrics
-
-## How it works
-
-```
- app ──HTTP──▶ unix socket / TCP ──▶ postmarkd ──HTTPS (pooled)──▶ api.postmarkapp.com
-                                       │
-                                       ├─ auth, validation, defaults
-                                       ├─ concurrency cap + retries
-                                       └─ optional in-memory queue + workers
-```
-
-Synchronous requests are proxied to Postmark and Postmark's response is
-returned unchanged. Async requests are validated, placed on a bounded queue and
-acknowledged with `202 Accepted`; a pool of workers delivers them.
+- [Sending mail](docs/sending.md): CLI, sendmail, SMTP, HTTP, SDKs, streams, batches
+- [Testing with the black hole](docs/testing.md)
+- [Email authentication (DKIM, SPF, DMARC)](docs/email-authentication.md)
+- [Containers and sidecars](docs/containers.md)
+- [Configuration](docs/configuration.md): every option, secrets
+- [HTTP API reference](docs/api.md)
+- [Deployment and operations](docs/deployment.md): systemd, sockets, hardening, scaling, metrics
 
 ## Contributing
 

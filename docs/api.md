@@ -16,6 +16,8 @@ over TCP.
 | `GET` | `/healthz` | Liveness: `200 ok` while the process is serving. |
 | `GET` | `/readyz` | Readiness: `200` when accepting mail, `503` while starting or stopping. |
 | `GET` | `/metrics` | Prometheus metrics. |
+| `GET` | `/blackhole/messages` | Blackhole mode only: captured messages. See [Testing](testing.md). |
+| `DELETE` | `/blackhole/messages` | Blackhole mode only: clear captured messages. |
 
 Health and metrics endpoints never require authentication.
 
@@ -99,6 +101,16 @@ A JSON array of up to 500 messages in the `/email` format. Postmark returns
 
 ```json
 { "Messages": [ { "To": "…", "TemplateAlias": "welcome", "TemplateModel": {} } ] }
+```
+
+## Choosing a stream per request
+
+`MessageStream` in a message always wins. For messages without one, the
+request's `X-Postmarkd-Stream` header or `?stream=` query parameter sets the
+stream, ahead of `POSTMARKD_DEFAULT_MESSAGE_STREAM`:
+
+```sh
+curl --unix-socket /run/postmarkd/postmarkd.sock 'http://localhost/email/batch?stream=broadcast' -d @newsletter.json
 ```
 
 ## Async mode

@@ -27,12 +27,21 @@ const (
 
 // Config is the complete runtime configuration of the daemon.
 type Config struct {
-	// Listen is a TCP address ("127.0.0.1:8025", ":8025") or a unix socket
-	// ("unix:/run/postmarkd/postmarkd.sock" or any absolute path). It is
-	// ignored when systemd passes sockets via socket activation.
+	// Listen is a comma separated list of HTTP API addresses: TCP
+	// ("127.0.0.1:8025", ":8025") or unix sockets ("unix:/path" or any
+	// absolute path). Ignored when systemd passes HTTP sockets.
 	Listen string
-	// SocketMode is the permission applied to a unix socket we create.
+	// SMTPListen is the same for the SMTP server. Empty disables SMTP.
+	SMTPListen string
+	// SMTPHostname is announced in the SMTP greeting.
+	SMTPHostname string
+	// SocketMode is the permission applied to unix sockets we create.
 	SocketMode fs.FileMode
+
+	// Blackhole accepts mail without sending it to Postmark, for testing.
+	Blackhole bool
+	// BlackholeKeep is how many blackholed messages to keep for inspection.
+	BlackholeKeep int
 
 	// ServerToken is the Postmark server API token.
 	ServerToken string
@@ -70,6 +79,7 @@ func Default() Config {
 	return Config{
 		Listen:          "127.0.0.1:8025",
 		SocketMode:      0o660,
+		BlackholeKeep:   1000,
 		APIURL:          "https://api.postmarkapp.com",
 		MaxConcurrency:  128,
 		Workers:         32,
@@ -121,7 +131,8 @@ var known = map[string]bool{}
 
 func init() {
 	for _, k := range []string{
-		"LISTEN", "SOCKET_MODE",
+		"LISTEN", "SMTP_LISTEN", "SMTP_HOSTNAME", "SOCKET_MODE",
+		"BLACKHOLE", "BLACKHOLE_KEEP",
 		"SERVER_TOKEN", "SERVER_TOKEN_FILE", "API_URL",
 		"DEFAULT_FROM", "DEFAULT_MESSAGE_STREAM",
 		"AUTH_TOKENS", "AUTH_TOKENS_FILE",
@@ -162,6 +173,16 @@ func (c *Config) apply(vals map[string]string) error {
 	}
 
 	str("LISTEN", &c.Listen)
+	str("SMTP_LISTEN", &c.SMTPListen)
+	str("SMTP_HOSTNAME", &c.SMTPHostname)
+	integer("BLACKHOLE_KEEP", &c.BlackholeKeep)
+	if v, ok := vals[Prefix+"BLACKHOLE"]; ok {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("%sBLACKHOLE: %q must be true or false", Prefix, v))
+		}
+		c.Blackhole = b
+	}
 	if v, ok := vals[Prefix+"SOCKET_MODE"]; ok {
 		m, err := strconv.ParseUint(v, 8, 32)
 		if err != nil || m > 0o777 {
@@ -235,11 +256,14 @@ func (c *Config) loadCredentials(vals map[string]string, credDir string) error {
 // Validate reports configuration errors.
 func (c Config) Validate() error {
 	var errs []error
-	if c.ServerToken == "" {
-		errs = append(errs, fmt.Errorf("a Postmark server token is required: set %sSERVER_TOKEN, %sSERVER_TOKEN_FILE or the %q systemd credential", Prefix, Prefix, CredentialServerToken))
+	if c.ServerToken == "" && !c.Blackhole {
+		errs = append(errs, fmt.Errorf("a Postmark server token is required: set %sSERVER_TOKEN, %sSERVER_TOKEN_FILE or the %q systemd credential (or %sBLACKHOLE=true for testing)", Prefix, Prefix, CredentialServerToken, Prefix))
 	}
-	if c.Listen == "" {
-		errs = append(errs, fmt.Errorf("%sLISTEN must not be empty", Prefix))
+	if len(ParseAddrs(c.Listen)) == 0 && len(ParseAddrs(c.SMTPListen)) == 0 {
+		errs = append(errs, fmt.Errorf("%sLISTEN or %sSMTP_LISTEN must be set", Prefix, Prefix))
+	}
+	if c.BlackholeKeep < 0 {
+		errs = append(errs, fmt.Errorf("%sBLACKHOLE_KEEP must be >= 0", Prefix))
 	}
 	if !strings.HasPrefix(c.APIURL, "https://") && !strings.HasPrefix(c.APIURL, "http://") {
 		errs = append(errs, fmt.Errorf("%sAPI_URL must be an http(s) URL", Prefix))
@@ -268,15 +292,29 @@ func (c Config) Validate() error {
 	return errors.Join(errs...)
 }
 
-// UnixSocket returns the socket path if Listen names a unix socket.
-func (c Config) UnixSocket() (string, bool) {
-	if p, ok := strings.CutPrefix(c.Listen, "unix:"); ok {
-		return p, true
+// Addr is a listen address.
+type Addr struct {
+	Network string // "tcp" or "unix"
+	Address string
+}
+
+// ParseAddrs parses a comma separated list of TCP addresses and unix
+// sockets ("unix:/path" or an absolute path).
+func ParseAddrs(list string) []Addr {
+	var out []Addr
+	for _, a := range strings.Split(list, ",") {
+		a = strings.TrimSpace(a)
+		switch {
+		case a == "":
+		case strings.HasPrefix(a, "unix:"):
+			out = append(out, Addr{"unix", strings.TrimPrefix(a, "unix:")})
+		case strings.HasPrefix(a, "/"):
+			out = append(out, Addr{"unix", a})
+		default:
+			out = append(out, Addr{"tcp", a})
+		}
 	}
-	if strings.HasPrefix(c.Listen, "/") {
-		return c.Listen, true
-	}
-	return "", false
+	return out
 }
 
 // ParseFile reads a KEY=VALUE file. The syntax is a subset of systemd's

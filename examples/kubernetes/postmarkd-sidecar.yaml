@@ -1,0 +1,69 @@
+# postmarkd as a native sidecar (Kubernetes 1.29+): it starts before the app
+# container, stays up for the life of the pod, and stops after it.
+#
+# The app reaches it on a unix socket in a pod-private emptyDir, or on
+# localhost:8025 (HTTP) / localhost:2525 (SMTP). Nothing is exposed outside
+# the pod.
+#
+#   kubectl create secret generic postmark --from-literal=server-token=YOUR_TOKEN
+#   kubectl apply -f postmarkd-sidecar.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: my-app
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: my-app }
+  template:
+    metadata:
+      labels: { app: my-app }
+    spec:
+      initContainers:
+        - name: postmarkd
+          image: ghcr.io/rossedman/postmarkd:latest
+          restartPolicy: Always # makes this a sidecar
+          env:
+            - name: POSTMARKD_SERVER_TOKEN
+              valueFrom:
+                secretKeyRef: { name: postmark, key: server-token }
+            - name: POSTMARKD_DEFAULT_FROM
+              value: noreply@example.com
+            - name: POSTMARKD_LISTEN
+              value: unix:/run/postmarkd/postmarkd.sock,127.0.0.1:8025
+            - name: POSTMARKD_SMTP_LISTEN
+              value: 127.0.0.1:2525
+            - name: POSTMARKD_SOCKET_MODE
+              value: "0666" # the emptyDir is private to this pod
+          startupProbe:
+            exec: { command: ["/usr/bin/postmarkd", "healthcheck"] }
+            periodSeconds: 1
+            failureThreshold: 30
+          readinessProbe:
+            exec: { command: ["/usr/bin/postmarkd", "healthcheck"] }
+            periodSeconds: 10
+          resources:
+            requests: { cpu: 10m, memory: 16Mi }
+            limits: { memory: 128Mi }
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
+          volumeMounts:
+            - { name: postmarkd, mountPath: /run/postmarkd }
+      containers:
+        - name: app
+          image: your-app:latest
+          env:
+            - name: POSTMARKD_ADDR # for curl, SDKs or `postmarkd send`
+              value: /run/postmarkd/postmarkd.sock
+            - name: SMTP_HOST
+              value: 127.0.0.1
+            - name: SMTP_PORT
+              value: "2525"
+          volumeMounts:
+            - { name: postmarkd, mountPath: /run/postmarkd }
+      volumes:
+        - name: postmarkd
+          emptyDir: { medium: Memory, sizeLimit: 1Mi }
