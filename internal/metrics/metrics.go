@@ -4,7 +4,6 @@ package metrics
 
 import (
 	"cmp"
-	"fmt"
 	"io"
 	"slices"
 	"strconv"
@@ -98,13 +97,23 @@ func (m *Metrics) Upstream(endpoint, code string, d time.Duration) {
 	h.sumNs.Add(int64(d))
 }
 
-// Write renders all metrics in Prometheus text format.
-func (m *Metrics) Write(w io.Writer) {
-	writeLabeled(w, "postmarkd_http_requests_total", "API requests by endpoint and response status.", "code", &m.requests)
-	writeLabeled(w, "postmarkd_upstream_requests_total", "Requests to Postmark by endpoint and response status.", "code", &m.upstream)
+// bucketLabels are the le="…" values, formatted once.
+var bucketLabels = func() (l [len(latencyBuckets)]string) {
+	for i, b := range latencyBuckets {
+		l[i] = strconv.FormatFloat(b, 'g', -1, 64)
+	}
+	return l
+}()
 
-	name := "postmarkd_upstream_request_duration_seconds"
-	fmt.Fprintf(w, "# HELP %s Latency of requests to Postmark, including retries.\n# TYPE %s histogram\n", name, name)
+// Write renders all metrics in Prometheus text format. Label values are
+// endpoint names and status codes, which never need escaping.
+func (m *Metrics) Write(w io.Writer) {
+	b := make([]byte, 0, 8<<10)
+	b = appendLabeled(b, "postmarkd_http_requests_total", "API requests by endpoint and response status.", &m.requests)
+	b = appendLabeled(b, "postmarkd_upstream_requests_total", "Requests to Postmark by endpoint and response status.", &m.upstream)
+
+	const name = "postmarkd_upstream_request_duration_seconds"
+	b = append(b, "# HELP "+name+" Latency of requests to Postmark, including retries.\n# TYPE "+name+" histogram\n"...)
 	var eps []string
 	m.latency.Range(func(k, _ any) bool { eps = append(eps, k.(string)); return true })
 	slices.Sort(eps)
@@ -112,45 +121,83 @@ func (m *Metrics) Write(w io.Writer) {
 		v, _ := m.latency.Load(ep)
 		h := v.(*histogram)
 		var cum uint64
-		for i, b := range latencyBuckets {
+		for i := range latencyBuckets {
 			cum += h.counts[i].Load()
-			fmt.Fprintf(w, "%s_bucket{endpoint=%q,le=%q} %d\n", name, ep, strconv.FormatFloat(b, 'g', -1, 64), cum)
+			b = appendSample(b, name+"_bucket", ep, "le", bucketLabels[i], cum)
 		}
 		cum += h.counts[len(latencyBuckets)].Load()
-		fmt.Fprintf(w, "%s_bucket{endpoint=%q,le=\"+Inf\"} %d\n", name, ep, cum)
-		fmt.Fprintf(w, "%s_sum{endpoint=%q} %g\n%s_count{endpoint=%q} %d\n", name, ep, time.Duration(h.sumNs.Load()).Seconds(), name, ep, cum)
+		b = appendSample(b, name+"_bucket", ep, "le", "+Inf", cum)
+		b = append(b, name+`_sum{endpoint="`...)
+		b = append(b, ep...)
+		b = append(b, `"} `...)
+		b = strconv.AppendFloat(b, time.Duration(h.sumNs.Load()).Seconds(), 'g', -1, 64)
+		b = append(b, '\n')
+		b = appendSample(b, name+"_count", ep, "", "", cum)
 	}
 
-	writeCounter(w, "postmarkd_messages_sent_total", "Messages accepted by Postmark.", m.MessagesSent.Load())
-	writeCounter(w, "postmarkd_messages_failed_total", "Messages rejected by Postmark or not delivered to it.", m.MessagesFailed.Load())
-	writeCounter(w, "postmarkd_upstream_retries_total", "Retried requests to Postmark.", m.Retries.Load())
-	writeCounter(w, "postmarkd_async_enqueued_total", "Requests accepted onto the async queue.", m.AsyncEnqueued.Load())
-	writeCounter(w, "postmarkd_async_rejected_total", "Async requests rejected because the queue was full.", m.AsyncRejected.Load())
-	writeCounter(w, "postmarkd_async_dropped_total", "Queued requests dropped at shutdown.", m.AsyncDropped.Load())
+	b = appendCounter(b, "postmarkd_messages_sent_total", "Messages accepted by Postmark.", m.MessagesSent.Load())
+	b = appendCounter(b, "postmarkd_messages_failed_total", "Messages rejected by Postmark or not delivered to it.", m.MessagesFailed.Load())
+	b = appendCounter(b, "postmarkd_upstream_retries_total", "Retried requests to Postmark.", m.Retries.Load())
+	b = appendCounter(b, "postmarkd_async_enqueued_total", "Requests accepted onto the async queue.", m.AsyncEnqueued.Load())
+	b = appendCounter(b, "postmarkd_async_rejected_total", "Async requests rejected because the queue was full.", m.AsyncRejected.Load())
+	b = appendCounter(b, "postmarkd_async_dropped_total", "Queued requests dropped at shutdown.", m.AsyncDropped.Load())
 
 	for _, g := range m.gauges {
-		fmt.Fprintf(w, "# HELP %s %s\n# TYPE %s gauge\n%s %g\n", g.name, g.help, g.name, g.name, g.fn())
+		b = appendHeader(b, g.name, g.help, "gauge")
+		b = append(append(b, g.name...), ' ')
+		b = strconv.AppendFloat(b, g.fn(), 'g', -1, 64)
+		b = append(b, '\n')
 	}
-	fmt.Fprintf(w, "# HELP postmarkd_start_time_seconds Unix time the daemon started.\n# TYPE postmarkd_start_time_seconds gauge\npostmarkd_start_time_seconds %d\n", m.start.Unix())
+	b = appendHeader(b, "postmarkd_start_time_seconds", "Unix time the daemon started.", "gauge")
+	b = append(b, "postmarkd_start_time_seconds "...)
+	b = strconv.AppendInt(b, m.start.Unix(), 10)
+	b = append(b, '\n')
+	w.Write(b)
 }
 
-func writeLabeled(w io.Writer, name, help, label string, m *sync.Map) {
-	fmt.Fprintf(w, "# HELP %s %s\n# TYPE %s counter\n", name, help, name)
-	vals := map[labels]uint64{}
-	var keys []labels
+func appendHeader(b []byte, name, help, typ string) []byte {
+	b = append(append(append(b, "# HELP "...), name...), ' ')
+	b = append(append(b, help...), '\n')
+	b = append(append(append(b, "# TYPE "...), name...), ' ')
+	return append(append(b, typ...), '\n')
+}
+
+// appendSample writes name{endpoint="ep"[,label="value"]} v.
+func appendSample(b []byte, name, ep, label, value string, v uint64) []byte {
+	b = append(append(append(b, name...), `{endpoint="`...), ep...)
+	if label != "" {
+		b = append(append(append(append(append(b, `",`...), label...), `="`...), value...), '"')
+	} else {
+		b = append(b, '"')
+	}
+	b = append(b, "} "...)
+	b = strconv.AppendUint(b, v, 10)
+	return append(b, '\n')
+}
+
+func appendLabeled(b []byte, name, help string, m *sync.Map) []byte {
+	b = appendHeader(b, name, help, "counter")
+	type sample struct {
+		labels
+		v uint64
+	}
+	samples := make([]sample, 0, 32)
 	m.Range(func(k, v any) bool {
-		vals[k.(labels)] = v.(*atomic.Uint64).Load()
-		keys = append(keys, k.(labels))
+		samples = append(samples, sample{k.(labels), v.(*atomic.Uint64).Load()})
 		return true
 	})
-	slices.SortFunc(keys, func(a, b labels) int {
+	slices.SortFunc(samples, func(a, b sample) int {
 		return cmp.Or(cmp.Compare(a.endpoint, b.endpoint), cmp.Compare(a.code, b.code))
 	})
-	for _, k := range keys {
-		fmt.Fprintf(w, "%s{endpoint=%q,%s=%q} %d\n", name, k.endpoint, label, k.code, vals[k])
+	for _, s := range samples {
+		b = appendSample(b, name, s.endpoint, "code", s.code, s.v)
 	}
+	return b
 }
 
-func writeCounter(w io.Writer, name, help string, v uint64) {
-	fmt.Fprintf(w, "# HELP %s %s\n# TYPE %s counter\n%s %d\n", name, help, name, name, v)
+func appendCounter(b []byte, name, help string, v uint64) []byte {
+	b = appendHeader(b, name, help, "counter")
+	b = append(append(b, name...), ' ')
+	b = strconv.AppendUint(b, v, 10)
+	return append(b, '\n')
 }
