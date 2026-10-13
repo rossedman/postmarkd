@@ -79,7 +79,7 @@ var navTitles = map[string]string{
 func main() {
 	root := flag.String("root", "..", "repository root")
 	out := flag.String("out", "../_site", "output directory")
-	siteURL := flag.String("url", "https://rossedman.github.io/postmarkd", "public URL of the site, for social cards and canonical links")
+	siteURL := flag.String("url", "https://rossedman.io/postmarkd", "public URL of the site, for social cards and canonical links")
 	flag.Parse()
 	log.SetFlags(0)
 

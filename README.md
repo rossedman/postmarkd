@@ -1,5 +1,5 @@
 <p align="center">
-  <a href="https://rossedman.github.io/postmarkd/">
+  <a href="https://rossedman.io/postmarkd/">
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset="assets/brand/banner-dark.png">
       <img alt="postmarkd: sending mail should be one line" src="assets/brand/banner-light.png" width="100%">
@@ -8,11 +8,11 @@
 </p>
 
 <p align="center">
-  <a href="https://rossedman.github.io/postmarkd/"><b>Documentation</b></a> ·
-  <a href="https://rossedman.github.io/postmarkd/docs/getting-started.html">Getting started</a> ·
-  <a href="https://rossedman.github.io/postmarkd/docs/cli.html">CLI</a> ·
-  <a href="https://rossedman.github.io/postmarkd/docs/api.html">API</a> ·
-  <a href="https://rossedman.github.io/postmarkd/docs/benchmarks.html">Benchmarks</a>
+  <a href="https://rossedman.io/postmarkd/"><b>Documentation</b></a> ·
+  <a href="https://rossedman.io/postmarkd/docs/getting-started.html">Getting started</a> ·
+  <a href="https://rossedman.io/postmarkd/docs/cli.html">CLI</a> ·
+  <a href="https://rossedman.io/postmarkd/docs/api.html">API</a> ·
+  <a href="https://rossedman.io/postmarkd/docs/benchmarks.html">Benchmarks</a>
 </p>
 
 <p align="center">
@@ -200,7 +200,7 @@ these mean.
 
 ## Documentation
 
-The full documentation is at **[rossedman.github.io/postmarkd](https://rossedman.github.io/postmarkd/)**,
+The full documentation is at **[rossedman.io/postmarkd](https://rossedman.io/postmarkd/)**,
 built from the [`docs/`](docs) folder:
 
 - [Getting started](docs/getting-started.md): install, configure, first message

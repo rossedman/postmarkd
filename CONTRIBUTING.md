@@ -63,7 +63,7 @@ POSTMARKD_BLACKHOLE=true POSTMARKD_SMTP_LISTEN=127.0.0.1:2525 go run ./cmd/postm
 
 The docs in `docs/` are plain Markdown that reads well on GitHub, and they
 are also the source of the website at
-[rossedman.github.io/postmarkd](https://rossedman.github.io/postmarkd/).
+[rossedman.io/postmarkd](https://rossedman.io/postmarkd/).
 The site is built by a small generator in `site/` (its own Go module, so the
 daemon stays dependency-free) and deployed by the Pages workflow.
 
