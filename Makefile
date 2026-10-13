@@ -8,7 +8,7 @@ UNITDIR    ?= $(PREFIX)/lib/systemd/system
 SYSUSERSDIR?= $(PREFIX)/lib/sysusers.d
 DESTDIR    ?=
 
-.PHONY: all build test race vet fmt lint bench install install-sendmail uninstall docker clean
+.PHONY: all build test race vet fmt lint bench site site-serve brand install install-sendmail uninstall docker clean
 
 all: vet test build
 
@@ -32,6 +32,18 @@ BENCH ?= .
 BENCHCOUNT ?= 6
 bench:
 	go test -run '^$$' -bench '$(BENCH)' -benchmem -count $(BENCHCOUNT) ./internal/...
+
+# Documentation site: built into _site/ from docs/ (see site/).
+site:
+	cd site && go run . -out ../_site
+
+site-serve: site
+	@echo "http://localhost:8000"
+	cd _site && python3 -m http.server 8000
+
+# Regenerate logos, banners and the social card (needs Node and Chromium).
+brand:
+	cd assets/brand/src && npm install --no-audit --no-fund && npm run build
 
 lint: vet
 	@test -z "$$(gofmt -l .)" || (echo "gofmt needed:"; gofmt -l .; exit 1)
@@ -69,4 +81,4 @@ docker:
 	docker build --build-arg VERSION=$(VERSION) -t postmarkd:$(VERSION) .
 
 clean:
-	rm -rf bin dist
+	rm -rf bin dist _site

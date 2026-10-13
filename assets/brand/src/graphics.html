@@ -1,0 +1,125 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600&family=Space+Grotesk:wght@500;700&display=block" rel="stylesheet">
+<style>
+  :root {
+    --paper: #FBF8F2; --paper-2: #F3EEE4; --ink: #16171D; --muted: #5D606B;
+    --stamp: #E0492A; --rule: #E6DFD2; --wave: #16171D;
+  }
+  .dark {
+    --paper: #0F1015; --paper-2: #171820; --ink: #EEEAE2; --muted: #A2A3AE;
+    --stamp: #FF6B47; --rule: #262833; --wave: #EEEAE2;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { width: 100%; height: 100%; }
+  body {
+    background: var(--paper); color: var(--ink); overflow: hidden; position: relative;
+    font-family: Inter, sans-serif;
+  }
+  /* Faint cancellation waves sweeping across the background. */
+  .bgwaves { position: absolute; inset: 0; opacity: .07; }
+  .bgwaves path { stroke: var(--wave); }
+  /* Airmail envelope edge. */
+  .airmail {
+    position: absolute; left: 0; right: 0; bottom: 0; height: 12px;
+    background: repeating-linear-gradient(-45deg, var(--stamp) 0 18px, transparent 18px 30px, var(--ink) 30px 48px, transparent 48px 60px);
+    opacity: .9;
+  }
+  .stamp { position: absolute; }
+  .stamp svg { width: 100%; height: 100%; overflow: visible; filter: url(#ink); }
+  .stamp .s { stroke: var(--stamp); }
+  .stamp .sf { fill: var(--stamp); }
+  .stamp .i { stroke: var(--wave); }
+  .ring-text { font: 600 10px "JetBrains Mono", monospace; fill: var(--stamp); }
+  .word {
+    font: 700 108px/1 "Space Grotesk", sans-serif; letter-spacing: -3px;
+  }
+  .word b { color: var(--stamp); font-weight: 700; }
+  .tag { font: 500 30px/1.25 Inter, sans-serif; color: var(--muted); letter-spacing: -.3px; }
+  .cmd {
+    display: inline-flex; align-items: center; gap: 12px;
+    font: 500 19px "JetBrains Mono", monospace; color: var(--ink);
+    background: var(--paper-2); border: 1px solid var(--rule); border-radius: 10px; padding: 12px 18px;
+  }
+  .cmd .p { color: var(--stamp); }
+  .cmd .a { color: var(--muted); }
+  .chips { display: flex; gap: 10px; align-items: center; font: 600 15px "JetBrains Mono", monospace; letter-spacing: .5px; }
+  .chip { border: 1.5px solid var(--ink); border-radius: 999px; padding: 6px 14px; text-transform: uppercase; }
+  .arrow { color: var(--stamp); font-size: 22px; }
+  .chip.pm { background: var(--ink); color: var(--paper); }
+
+  /* Banner 1280x400 */
+  .banner .stamp { left: 64px; top: 58px; width: 290px; height: 290px; transform: rotate(-9deg); }
+  .banner .text { position: absolute; left: 400px; top: 70px; display: grid; gap: 22px; }
+
+  /* Card 1280x640 */
+  .card .stamp { left: 80px; top: 110px; width: 360px; height: 360px; transform: rotate(-9deg); }
+  .card .text { position: absolute; left: 500px; top: 120px; display: grid; gap: 26px; }
+  .card .word { font-size: 124px; }
+  .card .url { position: absolute; left: 80px; bottom: 54px; font: 600 20px "JetBrains Mono", monospace; color: var(--muted); letter-spacing: .5px; }
+  .card .url b { color: var(--ink); font-weight: 600; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute">
+  <!-- Rubber-stamp ink: slightly ragged edges and uneven coverage. -->
+  <filter id="ink" x="-10%" y="-10%" width="120%" height="120%">
+    <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="7" result="noise"/>
+    <feDisplacementMap in="SourceGraphic" in2="noise" scale="1.6" result="rough"/>
+    <feTurbulence type="fractalNoise" baseFrequency="0.035" numOctaves="3" seed="3" result="blot"/>
+    <feColorMatrix in="blot" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 -1.4 1.55" result="mask"/>
+    <feComposite in="rough" in2="mask" operator="in"/>
+  </filter>
+</svg>
+
+<svg class="bgwaves" viewBox="0 0 1280 640" preserveAspectRatio="none" fill="none" stroke-width="3">
+  <path d="M520 120 q40 -22 80 0 t80 0 t80 0 t80 0 t80 0 t80 0 t80 0 t80 0 t80 0"/>
+  <path d="M520 160 q40 -22 80 0 t80 0 t80 0 t80 0 t80 0 t80 0 t80 0 t80 0 t80 0"/>
+  <path d="M520 200 q40 -22 80 0 t80 0 t80 0 t80 0 t80 0 t80 0 t80 0 t80 0 t80 0"/>
+  <path d="M520 240 q40 -22 80 0 t80 0 t80 0 t80 0 t80 0 t80 0 t80 0 t80 0 t80 0"/>
+  <path d="M520 280 q40 -22 80 0 t80 0 t80 0 t80 0 t80 0 t80 0 t80 0 t80 0 t80 0"/>
+</svg>
+
+<div id="root"></div>
+<div class="airmail"></div>
+
+<template id="stamp">
+  <div class="stamp">
+    <svg viewBox="0 0 200 200">
+      <defs><path id="ringpath" d="M100 100 m-78 0 a78 78 0 1 1 156 0 a78 78 0 1 1 -156 0"/></defs>
+      <circle class="s" cx="100" cy="100" r="92" fill="none" stroke-width="9"/>
+      <circle class="s" cx="100" cy="100" r="64" fill="none" stroke-width="3" stroke-dasharray="4 5"/>
+      <text class="ring-text"><textPath href="#ringpath" startOffset="0" textLength="486" lengthAdjust="spacing">POSTMARKD · MAIL DAEMON · HTTP · SMTP · SENDMAIL · CLI ·</textPath></text>
+      <g transform="translate(100 100) scale(2.2) translate(-30 -48)">{{DGLYPH}}</g>
+    </svg>
+  </div>
+</template>
+
+<script>
+  const q = "{{QUERY}}";
+  const [kind, theme] = [q.split("&")[0], (q.match(/theme=(\w+)/) || [])[1]];
+  document.documentElement.className = theme === "dark" ? "dark" : "";
+  document.body.className = kind;
+
+  // Pull the "d" glyph out of the generated mark.
+  const mark = new DOMParser().parseFromString(`{{MARK}}`, "image/svg+xml");
+  const d = mark.querySelector("path.stamp-fill").getAttribute("d");
+  const tpl = document.getElementById("stamp").innerHTML.replace("{{DGLYPH}}", `<path class="sf" d="${d}"/>`);
+
+  const text = kind === "card" ? `
+    <div class="word">postmark<b>d</b></div>
+    <div class="tag">Send mail from anything — HTTP, SMTP,<br>sendmail or the CLI — through Postmark.</div>
+    <div class="chips"><span class="chip">HTTP</span><span class="chip">SMTP</span><span class="chip">sendmail</span><span class="chip">CLI</span><span class="arrow">→</span><span class="chip pm">Postmark</span></div>
+    ` : `
+    <div class="word">postmark<b>d</b></div>
+    <div class="tag">Sending mail should be one line.</div>
+    <div class="cmd"><span class="p">$</span> echo "Backup done" <span class="a">|</span> postmarkd send -to ops@example.com</div>`;
+  document.getElementById("root").innerHTML = tpl + `<div class="text">${text}</div>` +
+    (kind === "card" ? `<div class="url">github.com/<b>rossedman/postmarkd</b></div>` : "");
+</script>
+</body>
+</html>

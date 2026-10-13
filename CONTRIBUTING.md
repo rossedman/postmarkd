@@ -59,6 +59,26 @@ Run with no Postmark account at all:
 POSTMARKD_BLACKHOLE=true POSTMARKD_SMTP_LISTEN=127.0.0.1:2525 go run ./cmd/postmarkd
 ```
 
+## Documentation and the website
+
+The docs in `docs/` are plain Markdown that reads well on GitHub, and they
+are also the source of the website at
+[rossedman.github.io/postmarkd](https://rossedman.github.io/postmarkd/).
+The site is built by a small generator in `site/` (its own Go module, so the
+daemon stays dependency-free) and deployed by the Pages workflow.
+
+```sh
+make site        # build into _site/; fails on broken links or anchors
+make site-serve  # build and serve at http://localhost:8000
+```
+
+To add a page, write `docs/<name>.md` (the first `#` heading is the title)
+and add it to the `nav` list in `site/main.go`. Link between pages with
+relative `.md` links, as you would on GitHub; the generator rewrites them.
+
+Brand assets (logo, banners, social card) live in `assets/brand/`. Their
+sources are in `assets/brand/src/`; regenerate them with `make brand`.
+
 ## Guidelines
 
 - Keep postmarkd small. It intentionally has **no third-party dependencies**;

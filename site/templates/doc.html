@@ -1,0 +1,47 @@
+{{define "page-doc"}}{{template "head" .}}
+<body class="doc-page">
+{{template "header" .}}
+<div class="doc-layout">
+  <aside class="sidebar" id="sidebar" aria-label="Documentation">
+    <nav>
+      {{range .Sections}}
+      <div class="side-section">
+        <h2>{{.Title}}</h2>
+        <ul>
+          {{range .Pages}}<li><a href="{{.Slug}}.html"{{if eq .Slug $.Page.Slug}} aria-current="page"{{end}}>{{.NavTitle}}</a></li>
+          {{end}}
+        </ul>
+      </div>
+      {{end}}
+    </nav>
+  </aside>
+
+  <main id="main" class="doc-main">
+    <article class="prose">
+      <p class="eyebrow">{{.Page.Section}}</p>
+      <h1>{{.Page.Title}}</h1>
+      {{.Page.Content}}
+    </article>
+
+    <nav class="pager" aria-label="Previous and next page">
+      {{with .Page.Prev}}<a class="pager-prev" href="{{.Slug}}.html"><span>Previous</span>{{.NavTitle}}</a>{{else}}<span></span>{{end}}
+      {{with .Page.Next}}<a class="pager-next" href="{{.Slug}}.html"><span>Next</span>{{.NavTitle}}</a>{{end}}
+    </nav>
+    <p class="edit"><a href="{{.Repo}}/edit/master/{{.Page.Source}}">Edit this page on GitHub</a></p>
+  </main>
+
+  <aside class="toc" aria-label="On this page">
+    {{if .Page.TOC}}
+    <h2>On this page</h2>
+    <ul>
+      {{range .Page.TOC}}<li class="toc-l{{.Level}}"><a href="#{{.ID}}">{{.Text}}</a></li>
+      {{end}}
+    </ul>
+    {{end}}
+  </aside>
+</div>
+<div class="scrim" hidden></div>
+{{template "footer" .}}
+</body>
+</html>
+{{end}}

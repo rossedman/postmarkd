@@ -1,0 +1,8 @@
+{
+  "name": "postmarkd-brand",
+  "private": true,
+  "description": "Builds postmarkd's logo SVGs and renders README banners and the social card.",
+  "type": "module",
+  "scripts": { "build": "node build.mjs" },
+  "dependencies": { "opentype.js": "^1.3.4", "playwright": "^1.49.0" }
+}

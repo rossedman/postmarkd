@@ -1,7 +1,26 @@
-# postmarkd
+<p align="center">
+  <a href="https://rossedman.github.io/postmarkd/">
+    <picture>
+      <source media="(prefers-color-scheme: dark)" srcset="assets/brand/banner-dark.png">
+      <img alt="postmarkd: sending mail should be one line" src="assets/brand/banner-light.png" width="100%">
+    </picture>
+  </a>
+</p>
 
-[![CI](https://github.com/rossedman/postmarkd/actions/workflows/ci.yml/badge.svg)](https://github.com/rossedman/postmarkd/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+<p align="center">
+  <a href="https://rossedman.github.io/postmarkd/"><b>Documentation</b></a> ·
+  <a href="https://rossedman.github.io/postmarkd/docs/getting-started.html">Getting started</a> ·
+  <a href="https://rossedman.github.io/postmarkd/docs/cli.html">CLI</a> ·
+  <a href="https://rossedman.github.io/postmarkd/docs/api.html">API</a> ·
+  <a href="https://rossedman.github.io/postmarkd/docs/benchmarks.html">Benchmarks</a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/rossedman/postmarkd/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/rossedman/postmarkd/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-E0492A.svg"></a>
+  <img alt="Go" src="https://img.shields.io/badge/go-1.23%2B-16171D.svg">
+  <img alt="Dependencies: none" src="https://img.shields.io/badge/dependencies-none-16171D.svg">
+</p>
 
 **Sending mail should be one line.** postmarkd is a small daemon that runs next
 to your apps (as a systemd service or a container sidecar) and delivers mail
@@ -26,16 +45,9 @@ echo "The nightly backup finished." | postmarkd send -to ops@example.com -subjec
 All of them end up in the same place: validated, defaulted, rate-limited and
 sent to Postmark over pooled HTTPS connections.
 
-```
- shell / cron / PHP ──sendmail──┐
- Rails / Django ─────SMTP :2525─┤
- Postmark SDK ───HTTP (socket)──┼──▶ postmarkd ──HTTPS──▶ Postmark ──▶ inbox
- curl ───────────HTTP :8025─────┘      │
-                                       ├─ defaults (From, stream), validation
-                                       ├─ parallel sends, safe retries
-                                       ├─ optional async queue
-                                       └─ blackhole mode for tests
-```
+<p align="center">
+  <img alt="How a message flows through postmarkd: HTTP and SMTP clients, validation and defaults, sync or async, a pooled Postmark client, Postmark" src="docs/images/architecture.svg" width="100%">
+</p>
 
 ## Why not just use Postmark directly?
 
@@ -188,6 +200,10 @@ these mean.
 
 ## Documentation
 
+The full documentation is at **[rossedman.github.io/postmarkd](https://rossedman.github.io/postmarkd/)**,
+built from the [`docs/`](docs) folder:
+
+- [Getting started](docs/getting-started.md): install, configure, first message
 - [Sending mail](docs/sending.md): CLI, sendmail, SMTP, HTTP, SDKs, streams, batches
 - [Testing with the black hole](docs/testing.md)
 - [Email authentication (DKIM, SPF, DMARC)](docs/email-authentication.md)
@@ -195,6 +211,8 @@ these mean.
 - [Configuration](docs/configuration.md): every option, secrets
 - [HTTP API reference](docs/api.md)
 - [Deployment and operations](docs/deployment.md): systemd, sockets, hardening, scaling, metrics
+- [CLI reference](docs/cli.md): every command, flag and exit code
+- [How it works](docs/architecture.md): the life of a message, retries, shutdown
 - [Benchmarks](docs/benchmarks.md)
 
 ## Contributing

@@ -41,6 +41,21 @@ jobs:
           curl -sf localhost:8025/email -d '{"To":"a@example.com","Subject":"ci","TextBody":"hi"}'
           curl -sf localhost:8025/blackhole/messages | grep -q '"Subject":"ci"'
 
+  site:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache-dependency-path: site/go.sum
+      - name: Build the docs site (fails on broken links)
+        working-directory: site
+        run: |
+          test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
+          go vet .
+          go run . -out ../_site
+
   bench:
     runs-on: ubuntu-latest
     steps:

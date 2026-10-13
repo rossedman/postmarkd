@@ -1,0 +1,105 @@
+{{define "head"}}<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Title}}</title>
+<meta name="description" content="{{.Description}}">
+<link rel="canonical" href="{{.URL}}/{{.Path}}">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="postmarkd">
+<meta property="og:title" content="{{.Title}}">
+<meta property="og:description" content="{{.Description}}">
+<meta property="og:url" content="{{.URL}}/{{.Path}}">
+<meta property="og:image" content="{{.URL}}/assets/social-card.png">
+<meta property="og:image:width" content="2560">
+<meta property="og:image:height" content="1280">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="theme-color" content="#FBF8F2" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0F1015" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="{{.Root}}assets/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="{{.Root}}assets/style.css">
+<script>
+  // Apply the saved theme before first paint.
+  try { const t = localStorage.getItem("theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
+</script>
+<script src="{{.Root}}assets/site.js" defer></script>
+</head>
+{{end}}
+
+{{define "header"}}
+<a class="skip" href="#main">Skip to content</a>
+<header class="topbar">
+  <div class="topbar-inner">
+    {{if .Page}}<button class="icon-btn menu-btn" type="button" aria-label="Open navigation" aria-controls="sidebar" aria-expanded="false">{{template "i-menu"}}</button>{{end}}
+    <a class="brand" href="{{.Root}}index.html" aria-label="postmarkd home">{{.Mark}}<span class="wordmark">postmark<b>d</b></span></a>
+    <nav class="topnav" aria-label="Main">
+      <a href="{{.Root}}docs/getting-started.html"{{if .Page}}{{if eq .Page.Slug "getting-started"}} aria-current="page"{{end}}{{end}}>Docs</a>
+      <a href="{{.Root}}docs/sending.html"{{if .Page}}{{if eq .Page.Slug "sending"}} aria-current="page"{{end}}{{end}}>Sending</a>
+      <a href="{{.Root}}docs/configuration.html"{{if .Page}}{{if eq .Page.Slug "configuration"}} aria-current="page"{{end}}{{end}}>Configuration</a>
+      <a href="{{.Root}}docs/api.html"{{if .Page}}{{if eq .Page.Slug "api"}} aria-current="page"{{end}}{{end}}>API</a>
+    </nav>
+    <div class="topbar-actions">
+      <button class="search-btn" type="button" data-search-open aria-label="Search the docs">{{template "i-search"}}<span>Search</span><kbd>/</kbd></button>
+      <a class="icon-btn" href="{{.Repo}}" aria-label="postmarkd on GitHub">{{template "i-github"}}</a>
+      <button class="icon-btn theme-btn" type="button" aria-label="Toggle dark mode">{{template "i-sun"}}{{template "i-moon"}}</button>
+    </div>
+  </div>
+</header>
+
+<dialog class="search" aria-label="Search">
+  <div class="search-box">
+    {{template "i-search"}}
+    <input type="search" placeholder="Search the docs" aria-label="Search the docs" autocomplete="off" spellcheck="false" data-root="{{.Root}}">
+    <kbd>esc</kbd>
+  </div>
+  <ol class="search-results" role="listbox"></ol>
+  <p class="search-empty" hidden>No results. Try “sendmail”, “streams” or “DMARC”.</p>
+</dialog>
+{{end}}
+
+{{define "footer"}}
+<footer class="footer">
+  <div class="footer-inner">
+    <div class="footer-brand">
+      <a class="brand" href="{{.Root}}index.html">{{.Mark}}<span class="wordmark">postmark<b>d</b></span></a>
+      <p>Send mail from anything, through Postmark.<br>Open source under the MIT license.</p>
+    </div>
+    <nav class="footer-cols" aria-label="Footer">
+      <div>
+        <h2>Docs</h2>
+        <a href="{{.Root}}docs/getting-started.html">Getting started</a>
+        <a href="{{.Root}}docs/sending.html">Sending mail</a>
+        <a href="{{.Root}}docs/testing.html">Testing</a>
+        <a href="{{.Root}}docs/containers.html">Containers</a>
+      </div>
+      <div>
+        <h2>Reference</h2>
+        <a href="{{.Root}}docs/configuration.html">Configuration</a>
+        <a href="{{.Root}}docs/cli.html">CLI</a>
+        <a href="{{.Root}}docs/api.html">HTTP API</a>
+        <a href="{{.Root}}docs/benchmarks.html">Benchmarks</a>
+      </div>
+      <div>
+        <h2>Project</h2>
+        <a href="{{.Repo}}">GitHub</a>
+        <a href="{{.Repo}}/issues">Issues</a>
+        <a href="{{.Root}}docs/changelog.html">Changelog</a>
+        <a href="{{.Root}}docs/security.html">Security</a>
+      </div>
+    </nav>
+  </div>
+  <p class="footer-note">© {{year}} The postmarkd Authors. postmarkd is an independent project and is not affiliated with or endorsed by Postmark or ActiveCampaign.</p>
+  <div class="airmail" aria-hidden="true"></div>
+</footer>
+{{end}}
+
+{{define "i-menu"}}<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>{{end}}
+{{define "i-search"}}<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="m16 16 4 4"/></svg>{{end}}
+{{define "i-github"}}<svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M12 2C6.48 2 2 6.58 2 12.23c0 4.52 2.87 8.35 6.84 9.7.5.1.68-.22.68-.49l-.01-1.7c-2.78.62-3.37-1.37-3.37-1.37-.45-1.18-1.11-1.5-1.11-1.5-.91-.64.07-.62.07-.62 1 .07 1.53 1.06 1.53 1.06.9 1.57 2.35 1.12 2.92.85.09-.66.35-1.12.64-1.37-2.22-.26-4.56-1.14-4.56-5.07 0-1.12.39-2.04 1.03-2.76-.1-.26-.45-1.3.1-2.71 0 0 .84-.28 2.75 1.05A9.36 9.36 0 0 1 12 6.84c.85 0 1.71.12 2.51.34 1.91-1.33 2.75-1.05 2.75-1.05.55 1.41.2 2.45.1 2.71.64.72 1.03 1.64 1.03 2.76 0 3.94-2.34 4.81-4.57 5.06.36.32.68.94.68 1.9l-.01 2.82c0 .27.18.6.69.49A10.1 10.1 0 0 0 22 12.23C22 6.58 17.52 2 12 2Z"/></svg>{{end}}
+{{define "i-sun"}}<svg class="i-sun" viewBox="0 0 24 24" width="19" height="19" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M4.6 4.6 6 6M18 18l1.4 1.4M2.5 12h2M19.5 12h2M4.6 19.4 6 18M18 6l1.4-1.4"/></svg>{{end}}
+{{define "i-moon"}}<svg class="i-moon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5Z"/></svg>{{end}}
+{{define "i-arrow"}}<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>{{end}}

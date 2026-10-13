@@ -1,0 +1,249 @@
+{{define "page-index"}}{{template "head" .}}
+<body class="home">
+{{template "header" .}}
+<main id="main">
+
+<section class="hero">
+  <div class="hero-inner">
+    <div class="hero-copy">
+      <p class="pill"><span class="dot"></span>Open source · one static Go binary · MIT</p>
+      <h1>Sending mail should be <em>one&nbsp;line</em>.</h1>
+      <p class="lede">postmarkd is a small daemon that sits next to your apps, on a server or as a container sidecar, and delivers their mail through <strong>Postmark</strong>. Use HTTP, SMTP, <code>sendmail</code> or the CLI. Your Postmark token stays in one place.</p>
+      <div class="cta-row">
+        <a class="btn btn-primary" href="docs/getting-started.html">Get started {{template "i-arrow"}}</a>
+        <a class="btn" href="{{.Repo}}">{{template "i-github"}} View on GitHub</a>
+      </div>
+      <div class="hero-install"><span>Try it without a Postmark account</span><code>docker run -e POSTMARKD_BLACKHOLE=true -p 8025:8025 ghcr.io/rossedman/postmarkd</code></div>
+    </div>
+
+    <div class="hero-demo" aria-label="Examples of sending mail with postmarkd">
+      <div class="stamp-deco" aria-hidden="true">{{.Mark}}</div>
+      <div class="term">
+        <div class="term-bar">
+          <span class="dots"><i></i><i></i><i></i></span>
+          <div class="tabs" role="tablist">
+            <button role="tab" aria-selected="true" data-tab="cli">CLI</button>
+            <button role="tab" aria-selected="false" data-tab="sendmail">sendmail</button>
+            <button role="tab" aria-selected="false" data-tab="smtp">SMTP</button>
+            <button role="tab" aria-selected="false" data-tab="http">HTTP</button>
+          </div>
+        </div>
+<pre class="term-body" data-panel="cli"><span class="c"># Body from stdin, sent through Postmark</span>
+<span class="p">$</span> df -h | postmarkd send -to ops@example.com \
+    -subject "Disk usage on web-1"
+<span class="o">b7bc2f4a-e38e-4336-af7d-e6c392c2f817</span>
+
+<span class="c"># Templates, streams, attachments</span>
+<span class="p">$</span> postmarkd send -to ada@example.com \
+    -template welcome -model '{"name":"Ada"}'</pre>
+<pre class="term-body" data-panel="sendmail" hidden><span class="c"># Make every program on the host use Postmark</span>
+<span class="p">$</span> sudo ln -s /usr/bin/postmarkd /usr/sbin/sendmail
+
+<span class="c"># cron, mailx, PHP mail(), git… just work</span>
+<span class="p">$</span> echo "Job ran" | mail -s "Nightly job" root@example.com
+<span class="p">$</span> printf 'Subject: Hi\n\nHello\n' | sendmail ada@example.com
+<span class="o">exit 0</span></pre>
+<pre class="term-body" data-panel="smtp" hidden><span class="c"># Point any SMTP app at localhost. No TLS, no password.</span>
+<span class="k">EMAIL_HOST</span> = <span class="s">"127.0.0.1"</span>     <span class="c"># Django</span>
+<span class="k">EMAIL_PORT</span> = <span class="o">2525</span>
+
+<span class="c"># Postmark headers work over SMTP too</span>
+<span class="k">X-PM-Message-Stream</span>: broadcast
+<span class="k">X-PM-Tag</span>: newsletter</pre>
+<pre class="term-body" data-panel="http" hidden><span class="c"># Postmark's own API, over a unix socket</span>
+<span class="p">$</span> curl --unix-socket /run/postmarkd/postmarkd.sock \
+    http://localhost/email -d '{
+      "To": "ada@example.com",
+      "Subject": "Your receipt",
+      "TextBody": "Thanks!"
+    }'
+<span class="o">{"MessageID":"b7bc2f4a-…","ErrorCode":0,"Message":"OK"}</span></pre>
+      </div>
+    </div>
+  </div>
+  <div class="waves-deco" aria-hidden="true"></div>
+</section>
+
+<section class="flow-section">
+  <div class="wrap">
+    <p class="eyebrow">How it works</p>
+    <h2 class="section-title">Every way in. One way out.</h2>
+    <p class="section-lede">Whatever your software speaks, postmarkd turns it into the same validated, rate-limited Postmark API call, over pooled connections and with retries that never send a message twice.</p>
+    <div class="flow">
+      <ul class="flow-in">
+        <li><span class="tag">sendmail</span><span>cron, <code>mail</code>, PHP <code>mail()</code>, git</span></li>
+        <li><span class="tag">SMTP</span><span>Rails, Django, Laravel, Grafana</span></li>
+        <li><span class="tag">HTTP</span><span>Postmark SDKs, curl, any HTTP client</span></li>
+        <li><span class="tag">CLI</span><span>shell scripts, CI jobs, alerts</span></li>
+      </ul>
+      <div class="flow-arrow" aria-hidden="true"><span></span></div>
+      <div class="flow-core">
+        <div class="flow-core-head">{{.Mark}}<strong>postmarkd</strong></div>
+        <ul>
+          <li>Defaults: From, message stream</li>
+          <li>Validation before Postmark sees it</li>
+          <li>Parallel sends, shared connections</li>
+          <li>Safe retries, optional async queue</li>
+          <li>Metrics, health, blackhole mode</li>
+        </ul>
+      </div>
+      <div class="flow-arrow" aria-hidden="true"><span></span></div>
+      <div class="flow-out">
+        <div class="pm">Postmark</div>
+        <p>DKIM-signed and delivered to the inbox</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="features">
+  <div class="wrap">
+    <p class="eyebrow">Features</p>
+    <h2 class="section-title">Small daemon. Everything you need.</h2>
+    <div class="grid">
+      <article class="feature">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16v12H4z"/><path d="m4 7 8 6 8-6"/></svg>
+        <h3>Postmark-compatible API</h3>
+        <p>The same endpoints and JSON as Postmark: <code>/email</code>, batches, templates. Existing SDKs work by changing the base URL.</p>
+      </article>
+      <article class="feature">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5h14v4H5zM5 15h14v4H5z"/><path d="M8 7h.01M8 17h.01M12 9v6"/></svg>
+        <h3>SMTP and sendmail</h3>
+        <p>A local SMTP listener and a drop-in <code>sendmail</code>. MIME, attachments, inline images and <code>X-PM-*</code> headers handled.</p>
+      </article>
+      <article class="feature">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/></svg>
+        <h3>Blackhole for tests</h3>
+        <p>Accept everything, send nothing, answer like Postmark. Tests read back what was “sent”. No account, no network.</p>
+      </article>
+      <article class="feature">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 8c3-3 6 3 9 0s6 3 9 0M3 16c3-3 6 3 9 0s6 3 9 0"/></svg>
+        <h3>Message streams</h3>
+        <p>Receipts on <code>outbound</code>, newsletters on <code>broadcast</code>, per message or per request, even mixed in one batch.</p>
+      </article>
+      <article class="feature">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 18 10 12l4 4 6-8"/><path d="M15 8h5v5"/></svg>
+        <h3>Built for volume</h3>
+        <p>500-message batches, a concurrency limit, pooled keep-alive connections and a bounded queue with back-pressure.</p>
+      </article>
+      <article class="feature">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 6v6c0 4.5 3.4 8.2 8 9 4.6-.8 8-4.5 8-9V6z"/><path d="m9 12 2 2 4-4"/></svg>
+        <h3>DKIM, SPF, DMARC check</h3>
+        <p><code>postmarkd check-domain</code> tells you which DNS records are missing, and the exact values to add.</p>
+      </article>
+      <article class="feature">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 9h8M8 12h8M8 15h5"/></svg>
+        <h3>systemd native</h3>
+        <p>Socket activation (even port 25, unprivileged), readiness, watchdog, graceful drain and a hardened unit.</p>
+      </article>
+      <article class="feature">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 7.5v9L12 21l8-4.5v-9z"/><path d="M4 7.5 12 12l8-4.5M12 12v9"/></svg>
+        <h3>Sidecar ready</h3>
+        <p>A 16&nbsp;MB non-root image with a built-in health check. Compose, Kubernetes and CI examples included.</p>
+      </article>
+      <article class="feature">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>
+        <h3>Observable</h3>
+        <p>Prometheus metrics for every endpoint and Postmark call, health and readiness checks, structured logs.</p>
+      </article>
+    </div>
+  </div>
+</section>
+
+<section class="stats">
+  <div class="wrap">
+    <div class="stat"><strong>33,700</strong><span>messages per second end to end over the unix socket on 4 CPUs</span></div>
+    <div class="stat"><strong>4.4&nbsp;µs</strong><span>to validate and apply defaults to a message</span></div>
+    <div class="stat"><strong>0</strong><span>third-party dependencies in the daemon</span></div>
+    <div class="stat"><strong>16&nbsp;MB</strong><span>distroless, non-root container image</span></div>
+    <p class="stats-note">Benchmarked against an instant fake Postmark, so these numbers are postmarkd’s own overhead. <a href="docs/benchmarks.html">See the benchmarks</a>.</p>
+  </div>
+</section>
+
+<section class="install">
+  <div class="wrap">
+    <p class="eyebrow">Install</p>
+    <h2 class="section-title">Running in a minute.</h2>
+    <div class="install-tabs">
+      <div class="tabs" role="tablist">
+        <button role="tab" aria-selected="true" data-tab="systemd">systemd</button>
+        <button role="tab" aria-selected="false" data-tab="docker">Docker</button>
+        <button role="tab" aria-selected="false" data-tab="k8s">Kubernetes</button>
+        <button role="tab" aria-selected="false" data-tab="ci">CI / tests</button>
+      </div>
+<pre data-panel="systemd"><span class="p">$</span> git clone https://github.com/rossedman/postmarkd && cd postmarkd
+<span class="p">$</span> sudo make install
+<span class="p">$</span> sudo install -m 0600 /dev/stdin /etc/postmarkd/server-token &lt;&lt;&lt; 'your-server-token'
+<span class="p">$</span> sudo systemctl enable --now postmarkd
+
+<span class="p">$</span> echo "Hello from $(hostname)" | postmarkd send -to you@example.com -subject "It works"</pre>
+<pre data-panel="docker" hidden><span class="p">$</span> docker run -d --name postmarkd \
+    -p 127.0.0.1:8025:8025 -p 127.0.0.1:2525:2525 \
+    -e POSTMARKD_SERVER_TOKEN=your-server-token \
+    -e POSTMARKD_DEFAULT_FROM=noreply@yourdomain.com \
+    ghcr.io/rossedman/postmarkd
+
+<span class="p">$</span> curl localhost:8025/email -d '{"To":"you@example.com","Subject":"Hi","TextBody":"Hello"}'</pre>
+<pre data-panel="k8s" hidden><span class="c"># A native sidecar: starts before your app, stops after it.</span>
+<span class="k">initContainers:</span>
+  - <span class="k">name:</span> postmarkd
+    <span class="k">image:</span> ghcr.io/rossedman/postmarkd:latest
+    <span class="k">restartPolicy:</span> Always
+    <span class="k">env:</span>
+      - { <span class="k">name:</span> POSTMARKD_LISTEN, <span class="k">value:</span> 127.0.0.1:8025 }
+      - <span class="k">name:</span> POSTMARKD_SERVER_TOKEN
+        <span class="k">valueFrom:</span> { <span class="k">secretKeyRef:</span> { <span class="k">name:</span> postmark, <span class="k">key:</span> server-token } }</pre>
+<pre data-panel="ci" hidden><span class="c"># GitHub Actions: a fake Postmark for your integration tests</span>
+<span class="k">services:</span>
+  <span class="k">postmarkd:</span>
+    <span class="k">image:</span> ghcr.io/rossedman/postmarkd:latest
+    <span class="k">env:</span> { <span class="k">POSTMARKD_BLACKHOLE:</span> <span class="s">"true"</span> }
+    <span class="k">ports:</span> [ <span class="s">"8025:8025"</span>, <span class="s">"2525:2525"</span> ]
+
+<span class="c"># then, in a test step:</span>
+<span class="p">$</span> curl -s localhost:8025/blackhole/messages | jq '.Messages[].Message.Subject'</pre>
+    </div>
+    <p class="install-more"><a href="docs/getting-started.html">Full getting-started guide {{template "i-arrow"}}</a></p>
+  </div>
+</section>
+
+<section class="compare">
+  <div class="wrap">
+    <p class="eyebrow">Why postmarkd</p>
+    <h2 class="section-title">Why not call Postmark directly?</h2>
+    <p class="section-lede">For one app with a Postmark SDK, you should. postmarkd helps when mail comes from many places, or from places that can’t easily talk to Postmark.</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th></th><th>Postmark directly</th><th>With postmarkd</th></tr></thead>
+        <tbody>
+          <tr><th>Server token</th><td>Copied into every app, container and CI secret</td><td>In one place. Apps get nothing, or their own revocable token</td></tr>
+          <tr><th>cron, PHP <code>mail()</code>, mailx</th><td>Configure Postfix as an authenticated TLS relay</td><td>Symlink postmarkd as <code>sendmail</code></td></tr>
+          <tr><th>SMTP-only apps</th><td>Postmark's SMTP host, TLS and credentials in each</td><td><code>localhost:2525</code>, nothing else</td></tr>
+          <tr><th>Tests and CI</th><td>Test token: needs network, can’t read back mail</td><td>Blackhole mode: offline, assert on what was sent</td></tr>
+          <tr><th>Latency</th><td>Every send waits on the Postmark round trip</td><td>Local socket, or <code>?async=true</code> returns immediately</td></tr>
+          <tr><th>Defaults and rules</th><td>Repeated in each app</td><td>Set once for the host</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section class="closing">
+  <div class="wrap">
+    <div class="closing-card">
+      <div class="closing-stamp" aria-hidden="true">{{.Mark}}</div>
+      <h2>Ship mail from anywhere in minutes.</h2>
+      <p>Free, open source and dependency-free. Read the docs, or try it right now in blackhole mode. No Postmark account needed.</p>
+      <div class="cta-row">
+        <a class="btn btn-primary" href="docs/getting-started.html">Read the docs {{template "i-arrow"}}</a>
+        <a class="btn" href="docs/testing.html">Try blackhole mode</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+</main>
+{{template "footer" .}}
+</body>
+</html>
+{{end}}
