@@ -19,7 +19,7 @@ spec:
       terminationGracePeriodSeconds: 45 # > POSTMARKD_SHUTDOWN_TIMEOUT so the queue drains
       containers:
         - name: postmarkd
-          image: ghcr.io/rossedman/postmarkd:latest
+          image: ghcr.io/rossedman/postmarkd:0.1
           env:
             - name: POSTMARKD_SERVER_TOKEN
               valueFrom: { secretKeyRef: { name: postmark, key: server-token } }

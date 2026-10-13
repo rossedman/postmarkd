@@ -15,6 +15,20 @@ All configuration is through `POSTMARKD_*` environment variables (see
 [configuration](configuration.md)). `systemd` features turn themselves off
 outside systemd.
 
+## Image tags
+
+Images are built for `linux/amd64` and `linux/arm64`.
+
+| Tag | Points to |
+| --- | --- |
+| `0.1.0` | Exactly that release. |
+| `0.1` | The latest `0.1.x` patch release. Recommended for most deployments. |
+| `latest` | The newest release. |
+
+```sh
+docker pull ghcr.io/rossedman/postmarkd:0.1
+```
+
 ## Sidecar patterns
 
 A sidecar runs next to your app and is reachable only by it. Three ways to
@@ -36,7 +50,7 @@ user, set `POSTMARKD_SOCKET_MODE=0666`; the volume itself is the access boundary
 ```yaml
 services:
   postmarkd:
-    image: ghcr.io/rossedman/postmarkd:latest
+    image: ghcr.io/rossedman/postmarkd:0.1
     environment:
       POSTMARKD_SERVER_TOKEN: ${POSTMARK_SERVER_TOKEN}
       POSTMARKD_DEFAULT_FROM: noreply@example.com
@@ -78,7 +92,7 @@ Programs that call `/usr/sbin/sendmail` (PHP's `mail()`, cron, many CMSs)
 can use the sidecar by copying the binary into your image under that name:
 
 ```dockerfile
-COPY --from=ghcr.io/rossedman/postmarkd:latest /usr/bin/postmarkd /usr/sbin/sendmail
+COPY --from=ghcr.io/rossedman/postmarkd:0.1 /usr/bin/postmarkd /usr/sbin/sendmail
 ENV POSTMARKD_ADDR=/run/postmarkd/postmarkd.sock   # or postmarkd:8025
 ```
 

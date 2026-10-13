@@ -6,14 +6,14 @@
 <section class="hero">
   <div class="hero-inner">
     <div class="hero-copy">
-      <p class="pill"><span class="dot"></span>Open source · one static Go binary · MIT</p>
+      <p class="pill"><span class="dot"></span>v{{.Version}} · open source · one static Go binary</p>
       <h1>Sending mail should be <em>one&nbsp;line</em>.</h1>
       <p class="lede">postmarkd is a small daemon that sits next to your apps, on a server or as a container sidecar, and delivers their mail through <strong>Postmark</strong>. Use HTTP, SMTP, <code>sendmail</code> or the CLI. Your Postmark token stays in one place.</p>
       <div class="cta-row">
         <a class="btn btn-primary" href="docs/getting-started.html">Get started {{template "i-arrow"}}</a>
         <a class="btn" href="{{.Repo}}">{{template "i-github"}} View on GitHub</a>
       </div>
-      <div class="hero-install"><span>Try it without a Postmark account</span><code>docker run -e POSTMARKD_BLACKHOLE=true -p 8025:8025 ghcr.io/rossedman/postmarkd</code></div>
+      <div class="hero-install"><span>Try it without a Postmark account</span><code>docker run -e POSTMARKD_BLACKHOLE=true -p 8025:8025 ghcr.io/rossedman/postmarkd:{{.Minor}}</code></div>
     </div>
 
     <div class="hero-demo" aria-label="Examples of sending mail with postmarkd">
@@ -171,8 +171,12 @@
         <button role="tab" aria-selected="false" data-tab="k8s">Kubernetes</button>
         <button role="tab" aria-selected="false" data-tab="ci">CI / tests</button>
       </div>
-<pre data-panel="systemd"><span class="p">$</span> git clone https://github.com/rossedman/postmarkd && cd postmarkd
-<span class="p">$</span> sudo make install
+<pre data-panel="systemd"><span class="c"># Debian / Ubuntu (for Fedora, RHEL: dnf install the .rpm; see the docs)</span>
+<span class="p">$</span> VERSION={{.Version}} ARCH=$(dpkg --print-architecture)
+<span class="p">$</span> REL=https://github.com/rossedman/postmarkd/releases/download/v$VERSION
+<span class="p">$</span> curl -fsSLO $REL/postmarkd_${VERSION}_linux_$ARCH.deb
+<span class="p">$</span> sudo apt install ./postmarkd_${VERSION}_linux_$ARCH.deb
+
 <span class="p">$</span> sudo install -m 0600 /dev/stdin /etc/postmarkd/server-token &lt;&lt;&lt; 'your-server-token'
 <span class="p">$</span> sudo systemctl enable --now postmarkd
 
@@ -181,13 +185,13 @@
     -p 127.0.0.1:8025:8025 -p 127.0.0.1:2525:2525 \
     -e POSTMARKD_SERVER_TOKEN=your-server-token \
     -e POSTMARKD_DEFAULT_FROM=noreply@yourdomain.com \
-    ghcr.io/rossedman/postmarkd
+    ghcr.io/rossedman/postmarkd:{{.Minor}}
 
 <span class="p">$</span> curl localhost:8025/email -d '{"To":"you@example.com","Subject":"Hi","TextBody":"Hello"}'</pre>
 <pre data-panel="k8s" hidden><span class="c"># A native sidecar: starts before your app, stops after it.</span>
 <span class="k">initContainers:</span>
   - <span class="k">name:</span> postmarkd
-    <span class="k">image:</span> ghcr.io/rossedman/postmarkd:latest
+    <span class="k">image:</span> ghcr.io/rossedman/postmarkd:{{.Minor}}
     <span class="k">restartPolicy:</span> Always
     <span class="k">env:</span>
       - { <span class="k">name:</span> POSTMARKD_LISTEN, <span class="k">value:</span> 127.0.0.1:8025 }
@@ -196,7 +200,7 @@
 <pre data-panel="ci" hidden><span class="c"># GitHub Actions: a fake Postmark for your integration tests</span>
 <span class="k">services:</span>
   <span class="k">postmarkd:</span>
-    <span class="k">image:</span> ghcr.io/rossedman/postmarkd:latest
+    <span class="k">image:</span> ghcr.io/rossedman/postmarkd:{{.Minor}}
     <span class="k">env:</span> { <span class="k">POSTMARKD_BLACKHOLE:</span> <span class="s">"true"</span> }
     <span class="k">ports:</span> [ <span class="s">"8025:8025"</span>, <span class="s">"2525:2525"</span> ]
 

@@ -101,6 +101,7 @@ type site struct {
 	tmpl      *template.Template
 	year      int
 	mark      template.HTML // inline logo mark, colored by site CSS
+	version   string        // latest release, from CHANGELOG.md
 }
 
 func build(root, url string) (*site, error) {
@@ -141,6 +142,15 @@ func build(root, url string) (*site, error) {
 		return nil, fmt.Errorf("broken links:\n  %s", strings.Join(problems, "\n  "))
 	}
 
+	var err error
+	if s.version, err = latestVersion(root); err != nil {
+		return nil, err
+	}
+	if stale := staleVersions(root, s.version); len(stale) > 0 {
+		return nil, fmt.Errorf("install instructions don't match the latest release %s (CHANGELOG.md):\n  %s",
+			s.version, strings.Join(stale, "\n  "))
+	}
+
 	markSVG, err := os.ReadFile(filepath.Join(root, "assets", "brand", "mark.svg"))
 	if err != nil {
 		return nil, err
@@ -172,6 +182,8 @@ type pageData struct {
 	Sections    []Section
 	Repo        string
 	Mark        template.HTML
+	Version     string // latest release, e.g. "0.1.0"
+	Minor       string // its image tag, e.g. "0.1"
 }
 
 func (s *site) write(out string) error {
@@ -189,7 +201,8 @@ func (s *site) write(out string) error {
 		}
 		return os.WriteFile(dst, buf.Bytes(), 0o644)
 	}
-	base := pageData{URL: s.url, Sections: s.sections, Repo: repoURL, Mark: s.mark}
+	base := pageData{URL: s.url, Sections: s.sections, Repo: repoURL, Mark: s.mark,
+		Version: s.version, Minor: minor(s.version)}
 
 	home := base
 	home.Path, home.Title = "", "postmarkd: send mail from anything, through Postmark"
@@ -339,3 +352,56 @@ func (s *site) resolveLink(from *Page, dest string) (string, string) {
 }
 
 var tableRE = regexp.MustCompile(`(?s)<table>.*?</table>`)
+
+var (
+	releaseRE    = regexp.MustCompile(`(?m)^## \[(\d+\.\d+\.\d+)\]`)
+	installVerRE = regexp.MustCompile(`VERSION=(\d+\.\d+\.\d+)`)
+	imageTagRE   = regexp.MustCompile(`ghcr\.io/rossedman/postmarkd:(\d+\.\d+(?:\.\d+)?)`)
+)
+
+// latestVersion is the newest released version in CHANGELOG.md.
+func latestVersion(root string) (string, error) {
+	b, err := os.ReadFile(filepath.Join(root, "CHANGELOG.md"))
+	if err != nil {
+		return "", err
+	}
+	m := releaseRE.FindSubmatch(b)
+	if m == nil {
+		return "", fmt.Errorf("CHANGELOG.md has no released version")
+	}
+	return string(m[1]), nil
+}
+
+func minor(v string) string {
+	parts := strings.SplitN(v, ".", 3)
+	return parts[0] + "." + parts[1]
+}
+
+// staleVersions finds install commands and image tags in the docs, README,
+// examples and site templates that point at an older release.
+func staleVersions(root, version string) []string {
+	var files []string
+	for _, pattern := range []string{"README.md", "docs/*.md", "examples/*/*", "site/templates/*.html"} {
+		m, _ := filepath.Glob(filepath.Join(root, pattern))
+		files = append(files, m...)
+	}
+	var stale []string
+	for _, f := range files {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			continue
+		}
+		rel, _ := filepath.Rel(root, f)
+		for _, m := range installVerRE.FindAllSubmatch(b, -1) {
+			if string(m[1]) != version {
+				stale = append(stale, fmt.Sprintf("%s: VERSION=%s", rel, m[1]))
+			}
+		}
+		for _, m := range imageTagRE.FindAllSubmatch(b, -1) {
+			if t := string(m[1]); t != version && t != minor(version) {
+				stale = append(stale, fmt.Sprintf("%s: image tag %s", rel, t))
+			}
+		}
+	}
+	return stale
+}

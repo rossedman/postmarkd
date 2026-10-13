@@ -14,30 +14,73 @@ account, jump to [Try it without Postmark](#try-it-without-postmark).
 
 ## 1. Install
 
-Pick one.
+Pick one. Packages are the easiest way to run postmarkd under systemd.
+Every release is on the [releases page](https://github.com/rossedman/postmarkd/releases),
+for `amd64` and `arm64`.
 
-**From source** (Go 1.23 or newer):
+**Debian, Ubuntu** (`.deb`):
+
+```sh
+VERSION=0.1.0
+ARCH=$(dpkg --print-architecture)   # amd64 or arm64
+REL=https://github.com/rossedman/postmarkd/releases/download/v$VERSION
+curl -fsSLO $REL/postmarkd_${VERSION}_linux_$ARCH.deb
+sudo apt install ./postmarkd_${VERSION}_linux_$ARCH.deb
+```
+
+**Fedora, RHEL, Rocky, Amazon Linux** (`.rpm`):
+
+```sh
+VERSION=0.1.0
+ARCH=$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')
+REL=https://github.com/rossedman/postmarkd/releases/download/v$VERSION
+sudo dnf install $REL/postmarkd_${VERSION}_linux_$ARCH.rpm
+```
+
+Both packages install `/usr/bin/postmarkd`, the systemd units, a
+`postmarkd` system user and a commented config file at
+`/etc/postmarkd/postmarkd.conf`. They don't start the service; you do that
+in step 4 once a token is in place.
+
+**Just the binary**, for example to use `postmarkd send` on a workstation or
+to run it without systemd:
+
+```sh
+VERSION=0.1.0
+ARCH=amd64   # or arm64
+REL=https://github.com/rossedman/postmarkd/releases/download/v$VERSION
+curl -fsSL $REL/postmarkd_${VERSION}_linux_$ARCH.tar.gz | tar xz postmarkd
+sudo install -m 0755 postmarkd /usr/local/bin/postmarkd
+```
+
+**As a container:**
+
+```sh
+docker pull ghcr.io/rossedman/postmarkd:0.1
+```
+
+Containers are configured entirely with environment variables. See
+[Containers and sidecars](containers.md); the rest of this guide uses systemd.
+
+**From source** (Go 1.23 or newer), which installs the same files as the
+packages:
 
 ```sh
 git clone https://github.com/rossedman/postmarkd && cd postmarkd
 sudo make install
 ```
 
-This installs `/usr/bin/postmarkd`, the systemd units, a `postmarkd` system
-user and a commented config file at `/etc/postmarkd/postmarkd.conf`.
+<details>
+<summary>Verifying a download</summary>
 
-**From a release package.** Download the `.deb` or `.rpm` for your
-architecture from the [releases page](https://github.com/rossedman/postmarkd/releases)
-and install it with `apt install ./postmarkd_*.deb` or `dnf install ./postmarkd-*.rpm`.
-
-**As a container:**
+Each release has a `checksums.txt` with SHA-256 sums of every file:
 
 ```sh
-docker pull ghcr.io/rossedman/postmarkd
+curl -fsSLO https://github.com/rossedman/postmarkd/releases/download/v$VERSION/checksums.txt
+sha256sum --ignore-missing -c checksums.txt
 ```
 
-Containers are configured entirely with environment variables. See
-[Containers and sidecars](containers.md); the rest of this guide uses systemd.
+</details>
 
 ## 2. Add your Postmark token
 
@@ -100,7 +143,7 @@ curl --unix-socket /run/postmarkd/postmarkd.sock http://localhost/email \
 
 | Your software | Do this |
 | --- | --- |
-| cron, `mail`, PHP `mail()`, anything calling sendmail | `sudo make install-sendmail` (links `/usr/sbin/sendmail` to postmarkd) |
+| cron, `mail`, PHP `mail()`, anything calling sendmail | `sudo ln -s /usr/bin/postmarkd /usr/sbin/sendmail` |
 | Apps that speak SMTP | Set `POSTMARKD_SMTP_LISTEN=127.0.0.1:2525`, restart, and point the app at it |
 | Apps using a Postmark SDK | Point the SDK's base URL at postmarkd |
 | Scripts | `postmarkd send` |
@@ -124,7 +167,7 @@ Blackhole mode accepts mail exactly as Postmark would, sends nothing, and
 keeps what was "sent" so you can look at it. No account or token needed:
 
 ```sh
-docker run --rm -p 8025:8025 -p 2525:2525 -e POSTMARKD_BLACKHOLE=true ghcr.io/rossedman/postmarkd
+docker run --rm -p 8025:8025 -p 2525:2525 -e POSTMARKD_BLACKHOLE=true ghcr.io/rossedman/postmarkd:0.1
 ```
 
 In another terminal:

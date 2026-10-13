@@ -21,7 +21,7 @@ spec:
     spec:
       initContainers:
         - name: postmarkd
-          image: ghcr.io/rossedman/postmarkd:latest
+          image: ghcr.io/rossedman/postmarkd:0.1
           restartPolicy: Always # makes this a sidecar
           env:
             - name: POSTMARKD_SERVER_TOKEN

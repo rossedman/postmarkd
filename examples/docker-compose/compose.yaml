@@ -6,7 +6,7 @@
 # never delivers it. Set POSTMARKD_BLACKHOLE=true to skip Postmark entirely.
 services:
   postmarkd:
-    image: ghcr.io/rossedman/postmarkd:latest
+    image: ghcr.io/rossedman/postmarkd:0.1
     # build: ../..            # or build from this repository
     environment:
       POSTMARKD_SERVER_TOKEN: ${POSTMARK_SERVER_TOKEN:-POSTMARK_API_TEST}

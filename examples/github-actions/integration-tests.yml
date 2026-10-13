@@ -9,7 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postmarkd:
-        image: ghcr.io/rossedman/postmarkd:latest
+        image: ghcr.io/rossedman/postmarkd:0.1
         env:
           POSTMARKD_BLACKHOLE: "true"
           POSTMARKD_DEFAULT_FROM: noreply@example.com

@@ -112,9 +112,25 @@ with no dependencies and no state on disk.
 
 ### On a server (systemd)
 
+Install the package for your distribution (amd64 or arm64):
+
 ```sh
-git clone https://github.com/rossedman/postmarkd && cd postmarkd
-sudo make install                        # binary, units, user, /etc/postmarkd/postmarkd.conf
+# Debian / Ubuntu
+VERSION=0.1.0 ARCH=$(dpkg --print-architecture)
+REL=https://github.com/rossedman/postmarkd/releases/download/v$VERSION
+curl -fsSLO $REL/postmarkd_${VERSION}_linux_$ARCH.deb
+sudo apt install ./postmarkd_${VERSION}_linux_$ARCH.deb
+
+# Fedora / RHEL / Rocky / Amazon Linux
+VERSION=0.1.0 ARCH=$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')
+REL=https://github.com/rossedman/postmarkd/releases/download/v$VERSION
+sudo dnf install $REL/postmarkd_${VERSION}_linux_$ARCH.rpm
+```
+
+This installs the binary, systemd units, a `postmarkd` user and
+`/etc/postmarkd/postmarkd.conf`. Then add your token, set a sender and start it:
+
+```sh
 sudo install -m 0600 /dev/stdin /etc/postmarkd/server-token <<< 'your-postmark-server-token'
 sudoedit /etc/postmarkd/postmarkd.conf   # set POSTMARKD_DEFAULT_FROM=noreply@yourdomain.com
 sudo systemctl enable --now postmarkd
@@ -126,12 +142,14 @@ echo "Hello from $(hostname)" | postmarkd send -to you@example.com -subject "It 
 Make every program on the host send through Postmark:
 
 ```sh
-sudo make install-sendmail               # /usr/sbin/sendmail -> postmarkd
+sudo ln -s /usr/bin/postmarkd /usr/sbin/sendmail
 echo "Subject: test" | sendmail you@example.com
 ```
 
-Release packages (`.deb`, `.rpm`, tarballs) are on the
-[releases page](https://github.com/rossedman/postmarkd/releases).
+Binaries, packages and checksums for every version are on the
+[releases page](https://github.com/rossedman/postmarkd/releases). To build
+from source instead: `git clone https://github.com/rossedman/postmarkd && cd postmarkd && sudo make install`.
+More options in [Getting started](docs/getting-started.md#1-install).
 
 ### In a container
 
@@ -139,7 +157,7 @@ Release packages (`.deb`, `.rpm`, tarballs) are on the
 docker run -d --name postmarkd -p 127.0.0.1:8025:8025 -p 127.0.0.1:2525:2525 \
   -e POSTMARKD_SERVER_TOKEN=your-postmark-server-token \
   -e POSTMARKD_DEFAULT_FROM=noreply@yourdomain.com \
-  ghcr.io/rossedman/postmarkd
+  ghcr.io/rossedman/postmarkd:0.1
 
 curl localhost:8025/email -d '{"To":"you@example.com","Subject":"Hi","TextBody":"Hello"}'
 ```
@@ -151,7 +169,7 @@ Actions service.
 ### For tests
 
 ```sh
-docker run -d -p 8025:8025 -p 2525:2525 -e POSTMARKD_BLACKHOLE=true ghcr.io/rossedman/postmarkd
+docker run -d -p 8025:8025 -p 2525:2525 -e POSTMARKD_BLACKHOLE=true ghcr.io/rossedman/postmarkd:0.1
 # … run your test suite against localhost:8025 or SMTP localhost:2525 …
 curl -s localhost:8025/blackhole/messages | jq '.Messages[].Message.Subject'
 ```

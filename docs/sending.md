@@ -55,7 +55,7 @@ When the postmarkd binary is invoked under the name `sendmail` it behaves like
 sendmail, so:
 
 ```sh
-sudo ln -s /usr/bin/postmarkd /usr/sbin/sendmail   # or: sudo make install-sendmail
+sudo ln -s /usr/bin/postmarkd /usr/sbin/sendmail
 ```
 
 and then, with no further configuration:

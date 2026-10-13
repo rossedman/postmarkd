@@ -93,5 +93,13 @@ sources are in `assets/brand/src/`; regenerate them with `make brand`.
 
 ## Releases
 
-Tag `vX.Y.Z` on the default branch. The release workflow builds binaries,
-`.deb` and `.rpm` packages with GoReleaser.
+1. Add a `## [X.Y.Z] - YYYY-MM-DD` section to `CHANGELOG.md` (it becomes the
+   release notes), update the version in the install commands in
+   `docs/getting-started.md`, `docs/deployment.md` and `README.md`, and merge.
+2. Either push a tag (`git tag -a vX.Y.Z -m vX.Y.Z && git push origin vX.Y.Z`)
+   or run the **Release** workflow from the Actions tab with the version,
+   which tags the branch head for you.
+
+The workflow builds binaries and `.deb`/`.rpm` packages for amd64 and arm64
+with GoReleaser, publishes the GitHub release, and pushes the multi-arch
+image to `ghcr.io/rossedman/postmarkd` tagged `X.Y.Z`, `X.Y` and `latest`.

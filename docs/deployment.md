@@ -13,7 +13,29 @@
 | `/etc/postmarkd/server-token` | Postmark server token (`root:root 0600`), loaded as a systemd credential. |
 | `/run/postmarkd/postmarkd.sock` | Default API socket. |
 
-## Installing from source
+## Installing
+
+The `.deb` and `.rpm` packages on the
+[releases page](https://github.com/rossedman/postmarkd/releases) install
+every file above except the token:
+
+```sh
+# Debian / Ubuntu
+VERSION=0.1.0 ARCH=$(dpkg --print-architecture)
+REL=https://github.com/rossedman/postmarkd/releases/download/v$VERSION
+curl -fsSLO $REL/postmarkd_${VERSION}_linux_$ARCH.deb
+sudo apt install ./postmarkd_${VERSION}_linux_$ARCH.deb
+
+# Fedora / RHEL / Rocky / Amazon Linux
+VERSION=0.1.0 ARCH=$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')
+REL=https://github.com/rossedman/postmarkd/releases/download/v$VERSION
+sudo dnf install $REL/postmarkd_${VERSION}_linux_$ARCH.rpm
+```
+
+The packages create the `postmarkd` user and group and reload systemd, but
+don't enable or start the service.
+
+### From source
 
 ```sh
 make build            # bin/postmarkd
@@ -22,6 +44,28 @@ sudo make install     # binary, units, sysusers entry, example config
 
 `make install` honours `PREFIX`, `SYSCONFDIR`, `UNITDIR` and `DESTDIR`. When
 `DESTDIR` is empty it also creates the `postmarkd` user and reloads systemd.
+
+### Upgrading
+
+Install the newer package the same way, then restart:
+
+```sh
+sudo systemctl restart postmarkd
+```
+
+`/etc/postmarkd/postmarkd.conf` is marked as a configuration file, so your
+edits are kept; a changed default config is saved next to it (as
+`.dpkg-dist` or `.rpmnew`) for you to compare. Read the
+[changelog](../CHANGELOG.md) before upgrading.
+
+### Uninstalling
+
+```sh
+sudo systemctl disable --now postmarkd postmarkd.socket
+sudo apt remove postmarkd     # or: sudo dnf remove postmarkd
+```
+
+The token in `/etc/postmarkd/server-token` is yours and is left in place.
 
 ## Running under systemd
 

@@ -497,3 +497,10 @@ dialog.search::backdrop { background: rgba(15, 16, 21, .45); backdrop-filter: bl
 
 /* Images in docs */
 .prose img { display: block; max-width: 100%; height: auto; margin: 24px 0 28px; border-radius: 16px; border: 1px solid var(--rule); }
+
+/* Collapsible notes in docs */
+.prose details { margin: 20px 0 24px; border: 1px solid var(--rule); border-radius: var(--radius); background: var(--surface); padding: 12px 18px; }
+.prose details[open] { padding-bottom: 4px; }
+.prose summary { cursor: pointer; font-weight: 600; }
+.prose summary::marker { color: var(--stamp); }
+.prose details > :not(summary):first-of-type { margin-top: 12px; }

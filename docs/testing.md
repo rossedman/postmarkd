@@ -7,7 +7,7 @@ Two ways to send mail that never reaches a real inbox.
 ```sh
 POSTMARKD_BLACKHOLE=true postmarkd
 # or
-docker run -p 8025:8025 -p 2525:2525 -e POSTMARKD_BLACKHOLE=true ghcr.io/rossedman/postmarkd
+docker run -p 8025:8025 -p 2525:2525 -e POSTMARKD_BLACKHOLE=true ghcr.io/rossedman/postmarkd:0.1
 ```
 
 In blackhole mode postmarkd:
