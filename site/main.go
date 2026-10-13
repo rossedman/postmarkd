@@ -62,6 +62,7 @@ var nav = []struct {
 	{"Project", [][2]string{
 		{"changelog", "CHANGELOG.md"},
 		{"contributing", "CONTRIBUTING.md"},
+		{"code-of-conduct", "CODE_OF_CONDUCT.md"},
 		{"security", "SECURITY.md"},
 	}},
 }
@@ -73,6 +74,7 @@ var navTitles = map[string]string{
 	"deployment":           "Deployment & operations",
 	"testing":              "Testing",
 	"contributing":         "Contributing",
+	"code-of-conduct":      "Code of Conduct",
 	"security":             "Security",
 }
 

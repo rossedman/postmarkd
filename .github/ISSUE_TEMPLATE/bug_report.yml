@@ -1,0 +1,59 @@
+name: Bug report
+description: Something isn't working as documented
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! For security issues, please use [private vulnerability reporting](https://github.com/rossedman/postmarkd/security/advisories/new) instead.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: And what you expected to happen instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: How to reproduce
+      description: Commands, requests or messages that trigger it. Blackhole mode (`POSTMARKD_BLACKHOLE=true`) is handy for reproducing without sending mail.
+      render: shell
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `postmarkd version`
+      placeholder: postmarkd 0.1.0
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: How do you run it?
+      options:
+        - .deb or .rpm package
+        - Container image
+        - Binary from a release
+        - Built from source
+    validations:
+      required: true
+  - type: dropdown
+    id: path
+    attributes:
+      label: How is mail sent?
+      multiple: true
+      options:
+        - HTTP API
+        - SMTP
+        - sendmail
+        - postmarkd send
+        - Async mode
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs and configuration
+      description: "`journalctl -u postmarkd` or container logs, and relevant `POSTMARKD_*` settings. Remove tokens and email addresses."
+      render: text
