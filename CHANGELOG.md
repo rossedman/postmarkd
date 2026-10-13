@@ -6,6 +6,26 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- Install instructions for the release packages: one-step `.deb` and `.rpm`
+  installs for amd64 and arm64, a binary-only install, checksum
+  verification, and upgrade and uninstall steps.
+- Container docs list the image tags (`X.Y.Z`, `X.Y`, `latest`).
+- The docs site build fails when an install command or image tag points at
+  an older release than the latest one in this changelog.
+
+### Changed
+
+- Examples use the `0.1` image tag instead of `latest`.
+- The `sendmail` symlink instructions work with the packages and no longer
+  need a source checkout.
+
+### Fixed
+
+- The container image reports its version without a `v` prefix, matching
+  the binaries and packages.
+
 ## [0.1.0] - 2026-10-13
 
 The first release: a small daemon that lets anything on a host or in a pod
