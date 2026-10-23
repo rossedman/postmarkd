@@ -1,0 +1,15 @@
+version: 1
+scanners:
+  # The same linter CI runs, with the same (default) rule set.
+  - name: golangci-lint
+    command: ["golangci-lint", "run", "--output.sarif.path={out}", "./..."]
+    workdir: "{dir}"
+  # Dockerfile and Kubernetes manifest misconfigurations.
+  - name: trivy
+    match: ["Trivy"]
+    command: ["trivy", "config", "--quiet", "--format", "sarif", "-o", "{out}", "{dir}"]
+rules:
+  min_level: error
+  deny: []
+paths:
+  deny: ["**/testdata/**", "assets/brand/src/node_modules/**"]
