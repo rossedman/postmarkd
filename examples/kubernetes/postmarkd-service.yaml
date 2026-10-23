@@ -17,6 +17,9 @@ spec:
       labels: { app: postmarkd }
     spec:
       terminationGracePeriodSeconds: 45 # > POSTMARKD_SHUTDOWN_TIMEOUT so the queue drains
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: { type: RuntimeDefault }
       containers:
         - name: postmarkd
           image: ghcr.io/rossedman/postmarkd:0.1
