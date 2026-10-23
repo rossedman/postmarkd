@@ -3,9 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
-	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"net/mail"
@@ -29,7 +27,7 @@ const (
 // sendmail implements the commonly used subset of sendmail(8): read a
 // message on stdin and deliver it via postmarkd. Configured with
 // $POSTMARKD_ADDR, $POSTMARKD_TOKEN and $POSTMARKD_STREAM.
-func sendmail(args []string) int {
+func (c *cli) sendmail(args []string) int {
 	var (
 		rcpts      []string
 		fromHeader bool // -t
@@ -68,7 +66,7 @@ func sendmail(args []string) int {
 				fullName = next()
 			}
 		case a == "-bs" || a == "-bp" || a == "-bv" || a == "-bd" || a == "-bi" || a == "-q" || strings.HasPrefix(a, "-q"):
-			fmt.Fprintf(os.Stderr, "sendmail (postmarkd): %s is not supported; postmarkd has no local queue\n", a)
+			c.errorf("sendmail (postmarkd): %s is not supported; postmarkd has no local queue\n", a)
 			return exUsage
 		case withValue[a]:
 			next()
@@ -77,9 +75,9 @@ func sendmail(args []string) int {
 		}
 	}
 
-	raw, err := readMessage(os.Stdin, ignoreDots)
+	raw, err := readMessage(c.stdin, ignoreDots)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "sendmail (postmarkd): reading message:", err)
+		c.errorf("sendmail (postmarkd): reading message: %v\n", err)
 		return exDataErr
 	}
 
@@ -100,13 +98,13 @@ func sendmail(args []string) int {
 	if fromHeader && len(rcpts) == 0 {
 		env.To = nil // take recipients from the headers
 	} else if len(env.To) == 0 {
-		fmt.Fprintln(os.Stderr, "sendmail (postmarkd): no recipients (pass addresses or use -t)")
+		c.errorf("sendmail (postmarkd): no recipients (pass addresses or use -t)\n")
 		return exUsage
 	}
 
 	msg, err := rfc822.Convert(raw, env)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "sendmail (postmarkd):", err)
+		c.errorf("sendmail (postmarkd): %v\n", err)
 		return exDataErr
 	}
 	if !hasFrom && fullName != "" && msg.From != "" {
@@ -118,32 +116,33 @@ func sendmail(args []string) int {
 	if s := os.Getenv("POSTMARKD_STREAM"); s != "" {
 		h.Set("X-Postmarkd-Stream", s)
 	}
-	res, err := client.New(client.ResolveAddr(""), os.Getenv("POSTMARKD_TOKEN")).Do(context.Background(), http.MethodPost, "/email", body, h)
+	res, err := client.New(client.ResolveAddr(""), os.Getenv("POSTMARKD_TOKEN")).Do(c.ctx, http.MethodPost, "/email", body, h)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "sendmail (postmarkd):", err)
+		c.errorf("sendmail (postmarkd): %v\n", err)
 		return exTempFail
 	}
 	var r struct {
 		ErrorCode int
 		Message   string
 	}
-	json.Unmarshal(res.Body, &r)
+	// A body that isn't JSON leaves r zero; the status code decides below.
+	_ = json.Unmarshal(res.Body, &r)
 	switch {
 	case res.StatusCode == http.StatusOK && r.ErrorCode == 0:
 		return 0
 	case res.StatusCode == http.StatusUnauthorized:
-		fmt.Fprintln(os.Stderr, "sendmail (postmarkd): not authorized; set POSTMARKD_TOKEN")
+		c.errorf("sendmail (postmarkd): not authorized; set POSTMARKD_TOKEN\n")
 		return exNoPerm
 	case res.StatusCode == http.StatusTooManyRequests || res.StatusCode >= 500:
-		fmt.Fprintf(os.Stderr, "sendmail (postmarkd): temporary failure: %s\n", r.Message)
+		c.errorf("sendmail (postmarkd): temporary failure: %s\n", r.Message)
 		return exTempFail
 	case res.StatusCode == http.StatusUnprocessableEntity || res.StatusCode == http.StatusRequestEntityTooLarge:
-		fmt.Fprintf(os.Stderr, "sendmail (postmarkd): message rejected: %s\n", r.Message)
+		c.errorf("sendmail (postmarkd): message rejected: %s\n", r.Message)
 		return exDataErr
 	case res.StatusCode == http.StatusNotFound:
 		return exUnavailable
 	default:
-		fmt.Fprintf(os.Stderr, "sendmail (postmarkd): HTTP %d: %s\n", res.StatusCode, r.Message)
+		c.errorf("sendmail (postmarkd): HTTP %d: %s\n", res.StatusCode, r.Message)
 		return exSoftware
 	}
 }
