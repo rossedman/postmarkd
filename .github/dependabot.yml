@@ -1,18 +1,48 @@
 version: 2
 updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: build
+    groups:
+      go:
+        patterns: ["*"]
+  # The docs site generator is its own module.
+  - package-ecosystem: gomod
+    directory: /site
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: build
+    groups:
+      site:
+        patterns: ["*"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    commit-message:
+      prefix: ci
     groups:
       actions:
         patterns: ["*"]
-  # The daemon has no dependencies; the docs site generator does.
-  - package-ecosystem: gomod
-    directory: /site
-    schedule:
-      interval: monthly
   - package-ecosystem: docker
     directory: /
     schedule:
-      interval: monthly
+      interval: weekly
+    commit-message:
+      prefix: build
+    groups:
+      docker:
+        patterns: ["*"]
+  - package-ecosystem: npm
+    directory: /assets/brand/src
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: build
+    groups:
+      brand:
+        patterns: ["*"]

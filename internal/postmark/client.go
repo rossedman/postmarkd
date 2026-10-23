@@ -135,6 +135,8 @@ func (c *Client) Post(ctx context.Context, path string, body []byte) (*Response,
 	}
 }
 
+// do makes one POST attempt with the per-attempt timeout. It returns the
+// response and the delay the server asked for in Retry-After, if any.
 func (c *Client) do(ctx context.Context, path string, body []byte) (*Response, time.Duration, error) {
 	ctx, cancel := context.WithTimeout(ctx, c.timeout)
 	defer cancel()
@@ -154,7 +156,7 @@ func (c *Client) do(ctx context.Context, path string, body []byte) (*Response, t
 	if err != nil {
 		return nil, 0, err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	b, err := io.ReadAll(io.LimitReader(res.Body, maxResponseBytes))
 	if err != nil {
 		return nil, 0, fmt.Errorf("reading response: %w", err)
@@ -170,6 +172,8 @@ func (c *Client) do(ctx context.Context, path string, body []byte) (*Response, t
 	}, retryAfter, nil
 }
 
+// retryableStatus reports whether r is a rate limit or a transient
+// upstream failure worth retrying.
 func retryableStatus(r *Response) bool {
 	if r == nil {
 		return false

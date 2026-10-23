@@ -1,10 +1,8 @@
 package main
 
 import (
-	"context"
 	"encoding/base64"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"io"
 	"mime"
@@ -20,11 +18,15 @@ import (
 // multi is a repeatable string flag.
 type multi []string
 
-func (m *multi) String() string     { return strings.Join(*m, ",") }
+// String returns the values joined with commas.
+func (m *multi) String() string { return strings.Join(*m, ",") }
+
+// Set adds a value.
 func (m *multi) Set(v string) error { *m = append(*m, v); return nil }
 
-func send(args []string) int {
-	fl := flag.NewFlagSet("send", flag.ExitOnError)
+// send builds a message from flags and sends it through a running postmarkd.
+func (c *cli) send(args []string) int {
+	fl := c.flags("send")
 	addr := fl.String("addr", "", "postmarkd address: socket path, host:port or URL (default $POSTMARKD_ADDR or "+client.DefaultSocket+")")
 	token := fl.String("token", os.Getenv("POSTMARKD_TOKEN"), "client token, if the daemon requires one (default $POSTMARKD_TOKEN)")
 	from := fl.String("from", "", "sender (default: the daemon's POSTMARKD_DEFAULT_FROM)")
@@ -45,7 +47,7 @@ func send(args []string) int {
 	model := fl.String("model", "", "template model as JSON; @file reads a file")
 	async := fl.Bool("async", false, "queue the message and return immediately")
 	fl.Usage = func() {
-		fmt.Fprint(fl.Output(), `Usage: postmarkd send -to ADDRESS [flags]
+		_, _ = fmt.Fprint(fl.Output(), `Usage: postmarkd send -to ADDRESS [flags]
 
 Send a message through a running postmarkd. If no body is given and stdin
 is not a terminal, stdin is used as the plain text body:
@@ -58,9 +60,11 @@ Flags:
 `)
 		fl.PrintDefaults()
 	}
-	fl.Parse(args)
+	if code := parse(fl, args); code >= 0 {
+		return code
+	}
 	if len(to)+len(cc)+len(bcc) == 0 {
-		fmt.Fprintln(os.Stderr, "postmarkd send: at least one -to, -cc or -bcc is required")
+		c.errorf("postmarkd send: at least one -to, -cc or -bcc is required\n")
 		fl.Usage()
 		return 2
 	}
@@ -88,7 +92,7 @@ Flags:
 		var b []byte
 		switch {
 		case v == "-":
-			b, err = io.ReadAll(os.Stdin)
+			b, err = io.ReadAll(c.stdin)
 		case strings.HasPrefix(v, "@"):
 			b, err = os.ReadFile(v[1:])
 		default:
@@ -96,7 +100,7 @@ Flags:
 		}
 		return string(b)
 	}
-	if *text == "" && *html == "" && *template == "" && stdinPiped() {
+	if *text == "" && *html == "" && *template == "" && c.stdinPiped() {
 		*text = "-"
 	}
 	set("TextBody", readArg(*text))
@@ -115,13 +119,13 @@ Flags:
 			m = "{}"
 		}
 		if !json.Valid([]byte(m)) {
-			fmt.Fprintln(os.Stderr, "postmarkd send: -model is not valid JSON")
+			c.errorf("postmarkd send: -model is not valid JSON\n")
 			return 2
 		}
 		msg["TemplateModel"] = json.RawMessage(m)
 	}
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "postmarkd send:", err)
+		c.errorf("postmarkd send: %v\n", err)
 		return 1
 	}
 
@@ -130,7 +134,7 @@ Flags:
 		for _, kv := range meta {
 			k, v, ok := strings.Cut(kv, "=")
 			if !ok {
-				fmt.Fprintf(os.Stderr, "postmarkd send: -metadata %q must be key=value\n", kv)
+				c.errorf("postmarkd send: -metadata %q must be key=value\n", kv)
 				return 2
 			}
 			md[k] = v
@@ -142,7 +146,7 @@ Flags:
 		for _, h := range headers {
 			k, v, ok := strings.Cut(h, ":")
 			if !ok {
-				fmt.Fprintf(os.Stderr, "postmarkd send: -header %q must be Name:Value\n", h)
+				c.errorf("postmarkd send: -header %q must be Name:Value\n", h)
 				return 2
 			}
 			hs = append(hs, map[string]string{"Name": strings.TrimSpace(k), "Value": strings.TrimSpace(v)})
@@ -153,7 +157,7 @@ Flags:
 	for _, f := range attach {
 		b, err := os.ReadFile(f)
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "postmarkd send:", err)
+			c.errorf("postmarkd send: %v\n", err)
 			return 1
 		}
 		ct := mime.TypeByExtension(filepath.Ext(f))
@@ -171,9 +175,9 @@ Flags:
 	if *async {
 		h.Set("X-Postmarkd-Async", "true")
 	}
-	res, err := client.New(client.ResolveAddr(*addr), *token).Do(context.Background(), http.MethodPost, path, body, h)
+	res, err := client.New(client.ResolveAddr(*addr), *token).Do(c.ctx, http.MethodPost, path, body, h)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "postmarkd send:", err)
+		c.errorf("postmarkd send: %v\n", err)
 		return 1
 	}
 	var r struct {
@@ -182,23 +186,19 @@ Flags:
 		MessageID string
 		RequestID string
 	}
-	json.Unmarshal(res.Body, &r)
+	// A body that isn't JSON leaves r zero; it is reported as is below.
+	_ = json.Unmarshal(res.Body, &r)
 	switch {
 	case res.StatusCode == http.StatusAccepted:
-		fmt.Println("queued", r.RequestID)
+		c.printf("queued %s\n", r.RequestID)
 	case res.StatusCode == http.StatusOK && r.ErrorCode == 0:
-		fmt.Println(r.MessageID)
+		c.printf("%s\n", r.MessageID)
 	default:
 		if r.Message == "" {
 			r.Message = strings.TrimSpace(string(res.Body))
 		}
-		fmt.Fprintf(os.Stderr, "postmarkd send: %s (HTTP %d, error %d)\n", r.Message, res.StatusCode, r.ErrorCode)
+		c.errorf("postmarkd send: %s (HTTP %d, error %d)\n", r.Message, res.StatusCode, r.ErrorCode)
 		return 1
 	}
 	return 0
-}
-
-func stdinPiped() bool {
-	fi, err := os.Stdin.Stat()
-	return err == nil && fi.Mode()&os.ModeCharDevice == 0
 }

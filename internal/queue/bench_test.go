@@ -9,7 +9,7 @@ import (
 // concurrent request handlers.
 func BenchmarkEnqueue(b *testing.B) {
 	q := New(1<<16, 32, func(context.Context, Job) {})
-	defer q.Shutdown(context.Background())
+	defer func() { _ = q.Shutdown(context.Background()) }()
 	b.ReportAllocs()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {

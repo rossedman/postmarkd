@@ -18,7 +18,7 @@
 <p align="center">
   <a href="https://github.com/rossedman/postmarkd/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/rossedman/postmarkd/actions/workflows/ci.yml/badge.svg"></a>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-E0492A.svg"></a>
-  <img alt="Go" src="https://img.shields.io/badge/go-1.23%2B-16171D.svg">
+  <img alt="Go" src="https://img.shields.io/badge/go-1.27%2B-16171D.svg">
   <img alt="Dependencies: none" src="https://img.shields.io/badge/dependencies-none-16171D.svg">
 </p>
 

@@ -6,3 +6,5 @@
 assets/brand/src/node_modules/
 assets/brand/src/.fonts/
 assets/brand/src/package-lock.json
+/postmarkd
+coverage.hand.out

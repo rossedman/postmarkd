@@ -1,0 +1,6 @@
+* text=auto eol=lf
+
+*.png binary
+
+# Generated Go code stays out of diffs and language stats.
+*.gen.go linguist-generated=true

@@ -15,7 +15,9 @@ import (
 )
 
 // listenFDsStart is SD_LISTEN_FDS_START, the first passed file descriptor.
-const listenFDsStart = 3
+// It is a variable only so tests can point Listeners at a descriptor they
+// own; fd 3 belongs to the Go runtime inside a test process.
+var listenFDsStart = 3
 
 // Listener is a socket passed by systemd with its FileDescriptorName=
 // (by default the name of the .socket unit).
@@ -29,9 +31,9 @@ type Listener struct {
 // from the environment so they are not inherited by child processes.
 func Listeners() ([]Listener, error) {
 	defer func() {
-		os.Unsetenv("LISTEN_PID")
-		os.Unsetenv("LISTEN_FDS")
-		os.Unsetenv("LISTEN_FDNAMES")
+		for _, k := range []string{"LISTEN_PID", "LISTEN_FDS", "LISTEN_FDNAMES"} {
+			_ = os.Unsetenv(k) // only fails for invalid names
+		}
 	}()
 
 	pid, err := strconv.Atoi(os.Getenv("LISTEN_PID"))
@@ -42,11 +44,20 @@ func Listeners() ([]Listener, error) {
 	if err != nil || n <= 0 {
 		return nil, nil
 	}
-	names := strings.Split(os.Getenv("LISTEN_FDNAMES"), ":")
+	fds := make([]int, n)
+	for i := range fds {
+		fds[i] = listenFDsStart + i
+	}
+	return fromFDs(fds, strings.Split(os.Getenv("LISTEN_FDNAMES"), ":"))
+}
 
-	listeners := make([]Listener, 0, n)
-	for i := 0; i < n; i++ {
-		fd := listenFDsStart + i
+// fromFDs turns passed socket descriptors into listeners, naming each from
+// names (LISTEN_FDNAMES) or LISTEN_FD_<fd> when its name is missing or
+// empty. It takes ownership of the descriptors. On error it closes every
+// listener built so far.
+func fromFDs(fds []int, names []string) ([]Listener, error) {
+	listeners := make([]Listener, 0, len(fds))
+	for i, fd := range fds {
 		syscall.CloseOnExec(fd)
 		name := "LISTEN_FD_" + strconv.Itoa(fd)
 		if i < len(names) && names[i] != "" {
@@ -54,10 +65,10 @@ func Listeners() ([]Listener, error) {
 		}
 		f := os.NewFile(uintptr(fd), name)
 		l, err := net.FileListener(f)
-		f.Close() // FileListener dups the descriptor
+		_ = f.Close() // FileListener dups the descriptor
 		if err != nil {
 			for _, l := range listeners {
-				l.Close()
+				_ = l.Close()
 			}
 			return nil, fmt.Errorf("socket activation: fd %d (%s): %w", fd, name, err)
 		}
@@ -78,7 +89,7 @@ func Notify(state string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	if _, err := conn.Write([]byte(state)); err != nil {
 		return false, err
 	}

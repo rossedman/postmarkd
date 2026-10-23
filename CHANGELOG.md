@@ -14,17 +14,32 @@ All notable changes to this project are documented here. The format follows
 - Container docs list the image tags (`X.Y.Z`, `X.Y`, `latest`).
 - The docs site build fails when an install command or image tag points at
   an older release than the latest one in this changelog.
+- Release checksums and container images are signed with cosign
+  (keyless), and archives, packages and images carry build provenance
+  attestations. See `SECURITY.md` for verification.
 
 ### Changed
 
 - Examples use the `0.1` image tag instead of `latest`.
 - The `sendmail` symlink instructions work with the packages and no longer
   need a source checkout.
+- Building from source needs Go 1.27 or newer.
+- A message that gives a checked field (`From`, `To`, `Cc`, `Bcc`,
+  `HtmlBody`, `TextBody`, `TemplateId`, `TemplateAlias`, `MessageStream`)
+  more than once, under any capitalization, or a template batch with more
+  than one `Messages`, is rejected with 422 instead of resolved
+  unpredictably.
 
 ### Fixed
 
 - The container image reports its version without a `v` prefix, matching
   the binaries and packages.
+- A field holding only Unicode whitespace such as a non-breaking space now
+  counts as blank whether or not it is JSON-escaped, so the default `From`
+  applies and an empty required field is rejected.
+- Whitespace-only defaults and stream overrides (`?stream=%20`, a blank
+  `X-Postmarkd-Stream`) are ignored instead of being sent as a blank
+  `MessageStream`, and defaults are trimmed.
 
 ## [0.1.0] - 2026-10-13
 

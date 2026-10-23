@@ -3,8 +3,8 @@ package main
 import (
 	"context"
 	"errors"
-	"flag"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
 	"net"
@@ -24,33 +24,37 @@ import (
 	"github.com/rossedman/postmarkd/internal/systemd"
 )
 
-func serve(args []string) int {
-	fl := flag.NewFlagSet("serve", flag.ExitOnError)
+// serve runs the daemon until SIGINT, SIGTERM or c.ctx ends, then drains
+// in-flight and queued mail.
+func (c *cli) serve(args []string) int {
+	fl := c.flags("serve")
 	configPath := fl.String("config", "", "path to a KEY=VALUE config file (environment variables override it)")
 	check := fl.Bool("check-config", false, "validate the configuration and exit")
 	showVersion := fl.Bool("version", false, "print the version and exit")
 	fl.Usage = func() {
-		fmt.Fprint(fl.Output(), usage+"\nDaemon flags:\n")
+		_, _ = fmt.Fprint(fl.Output(), usage+"\nDaemon flags:\n")
 		fl.PrintDefaults()
-		fmt.Fprint(fl.Output(), "\nAll settings are POSTMARKD_* environment variables; see docs/configuration.md.\n")
+		_, _ = fmt.Fprint(fl.Output(), "\nAll settings are POSTMARKD_* environment variables; see docs/configuration.md.\n")
 	}
-	fl.Parse(args)
+	if code := parse(fl, args); code >= 0 {
+		return code
+	}
 
 	if *showVersion {
-		fmt.Println("postmarkd", version)
+		c.printf("postmarkd %s\n", version)
 		return 0
 	}
 
 	cfg, err := config.Load(*configPath, os.Environ())
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "postmarkd: invalid configuration:\n%s\n", indent(err.Error()))
+		c.errorf("postmarkd: invalid configuration:\n%s\n", indent(err.Error()))
 		return 2
 	}
 	if *check {
-		fmt.Println("configuration OK")
+		c.printf("configuration OK\n")
 		return 0
 	}
-	log := newLogger(cfg)
+	log := newLogger(cfg, c.stderr)
 
 	httpLs, smtpLs, err := listen(cfg)
 	if err != nil {
@@ -118,7 +122,7 @@ func serve(args []string) int {
 	}
 	srv.SetReady(true)
 
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	ctx, stop := signal.NotifyContext(c.ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
 	status := "Accepting mail on " + strings.Join(append(names(httpLs, ""), names(smtpLs, "smtp ")...), ", ")
@@ -178,7 +182,7 @@ func listen(cfg config.Config) (httpLs, smtpLs []net.Listener, err error) {
 	}
 	closeAll := func() {
 		for _, l := range append(httpLs, smtpLs...) {
-			l.Close()
+			_ = l.Close()
 		}
 	}
 	if len(httpLs) == 0 {
@@ -204,6 +208,8 @@ func listen(cfg config.Config) (httpLs, smtpLs []net.Listener, err error) {
 	return httpLs, smtpLs, nil
 }
 
+// bind listens on a TCP address or a unix socket, replacing a stale socket
+// file and setting the socket's permissions to mode.
 func bind(a config.Addr, mode fs.FileMode) (net.Listener, error) {
 	if a.Network == "tcp" {
 		return net.Listen("tcp", a.Address)
@@ -216,7 +222,7 @@ func bind(a config.Addr, mode fs.FileMode) (net.Listener, error) {
 		return nil, err
 	}
 	if err := os.Chmod(a.Address, mode); err != nil {
-		l.Close()
+		_ = l.Close()
 		return nil, err
 	}
 	return l, nil
@@ -236,12 +242,13 @@ func removeStaleSocket(path string) error {
 		return fmt.Errorf("%s exists and is not a socket", path)
 	}
 	if c, err := net.DialTimeout("unix", path, time.Second); err == nil {
-		c.Close()
+		_ = c.Close()
 		return fmt.Errorf("%s is in use by another process", path)
 	}
 	return os.Remove(path)
 }
 
+// watchdog pings the systemd watchdog every interval until ctx ends.
 func watchdog(ctx context.Context, every time.Duration) {
 	t := time.NewTicker(every)
 	defer t.Stop()
@@ -250,18 +257,21 @@ func watchdog(ctx context.Context, every time.Duration) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			systemd.Notify("WATCHDOG=1")
+			_, _ = systemd.Notify("WATCHDOG=1") // a missed ping restarts us, which is the point
 		}
 	}
 }
 
+// notify sends state to systemd, logging rather than failing on errors.
 func notify(log *slog.Logger, state string) {
 	if _, err := systemd.Notify(state); err != nil {
 		log.Warn("sd_notify failed", "error", err)
 	}
 }
 
-func newLogger(cfg config.Config) *slog.Logger {
+// newLogger returns a logger writing to w in the configured format and
+// level, leaving out timestamps under journald, which adds its own.
+func newLogger(cfg config.Config, w io.Writer) *slog.Logger {
 	opts := &slog.HandlerOptions{Level: cfg.LogLevel}
 	// journald already timestamps every line.
 	if os.Getenv("JOURNAL_STREAM") != "" {
@@ -273,15 +283,18 @@ func newLogger(cfg config.Config) *slog.Logger {
 		}
 	}
 	if cfg.LogFormat == "json" {
-		return slog.New(slog.NewJSONHandler(os.Stderr, opts))
+		return slog.New(slog.NewJSONHandler(w, opts))
 	}
-	return slog.New(slog.NewTextHandler(os.Stderr, opts))
+	return slog.New(slog.NewTextHandler(w, opts))
 }
 
+// describe names a listener as network:address for logs.
 func describe(l net.Listener) string {
 	return l.Addr().Network() + ":" + l.Addr().String()
 }
 
+// names lists the listeners' addresses, each with prefix, for the systemd
+// status line.
 func names(ls []net.Listener, prefix string) []string {
 	s := make([]string, len(ls))
 	for i, l := range ls {
@@ -290,6 +303,7 @@ func names(ls []net.Listener, prefix string) []string {
 	return s
 }
 
+// indent indents every line of s by two spaces.
 func indent(s string) string {
 	return "  " + strings.ReplaceAll(s, "\n", "\n  ")
 }

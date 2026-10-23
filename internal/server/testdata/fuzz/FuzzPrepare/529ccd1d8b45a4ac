@@ -1,0 +1,5 @@
+go test fuzz v1
+[]byte("{\"messages\":[],\"MESSAGES\":[{\"From\":\"a@example.com\",\"To\":\"b@example.com\",\"TemplateId\":1}]}")
+byte('\x03')
+string("default@example.com")
+string("oudunbount")

@@ -44,14 +44,14 @@ func (f *fakePostmark) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if status != 0 && status != 200 {
 		w.WriteHeader(status)
-		io.WriteString(w, `{"ErrorCode":406,"Message":"You tried to send to a recipient that has been marked as inactive."}`)
+		_, _ = io.WriteString(w, `{"ErrorCode":406,"Message":"You tried to send to a recipient that has been marked as inactive."}`)
 		return
 	}
 	if strings.Contains(r.URL.Path, "batch") {
-		io.WriteString(w, `[{"ErrorCode":0,"Message":"OK","To":"a@example.com"},{"ErrorCode":300,"Message":"Invalid 'To' address"}]`)
+		_, _ = io.WriteString(w, `[{"ErrorCode":0,"Message":"OK","To":"a@example.com"},{"ErrorCode":300,"Message":"Invalid 'To' address"}]`)
 		return
 	}
-	io.WriteString(w, `{"ErrorCode":0,"Message":"OK","MessageID":"b7bc2f4a","To":"a@example.com"}`)
+	_, _ = io.WriteString(w, `{"ErrorCode":0,"Message":"OK","MessageID":"b7bc2f4a","To":"a@example.com"}`)
 }
 
 func (f *fakePostmark) last(t *testing.T) fakeRequest {
@@ -81,7 +81,7 @@ func setup(t *testing.T, mutate func(*config.Config)) (*Server, *fakePostmark, *
 	m := metrics.New()
 	client := postmark.New(postmark.Options{BaseURL: cfg.APIURL, ServerToken: cfg.ServerToken, MaxConcurrency: 4, MaxRetries: 0})
 	s := New(cfg, client, m, slog.New(slog.NewTextHandler(io.Discard, nil)))
-	t.Cleanup(func() { s.Shutdown(context.Background()) })
+	t.Cleanup(func() { _ = s.Shutdown(context.Background()) })
 	return s, fake, m
 }
 
@@ -112,7 +112,7 @@ func TestSendEmail(t *testing.T) {
 		t.Errorf("upstream path=%q token=%q", req.path, req.token)
 	}
 	var sent map[string]any
-	json.Unmarshal(req.body, &sent)
+	mustUnmarshal(t, req.body, &sent)
 	if sent["From"] != "noreply@example.com" || sent["MessageStream"] != "outbound" {
 		t.Errorf("defaults not applied: %v", sent)
 	}
@@ -128,7 +128,7 @@ func TestExplicitFromWins(t *testing.T) {
 		t.Fatalf("status = %d, body = %s", w.Code, w.Body)
 	}
 	var sent map[string]any
-	json.Unmarshal(fake.last(t).body, &sent)
+	mustUnmarshal(t, fake.last(t).body, &sent)
 	if sent["from"] != "me@example.com" || sent["From"] != nil {
 		t.Errorf("explicit lowercase from was overridden: %v", sent)
 	}
@@ -152,7 +152,7 @@ func TestValidation(t *testing.T) {
 	for _, c := range cases {
 		w := do(s, "POST", c.path, c.body)
 		var e apiError
-		json.Unmarshal(w.Body.Bytes(), &e)
+		mustUnmarshal(t, w.Body.Bytes(), &e)
 		if w.Code != 422 || e.ErrorCode != c.code {
 			t.Errorf("%s %s: status=%d code=%d, want 422/%d (%s)", c.path, c.body, w.Code, e.ErrorCode, c.code, e.Message)
 		}
@@ -287,7 +287,7 @@ func TestStreamOverride(t *testing.T) {
 	s, fake, _ := setup(t, func(c *config.Config) { c.DefaultMessageStream = "outbound" })
 	do(s, "POST", "/email/batch?stream=broadcast", `[{"From":"f@example.com","To":"a@example.com","TextBody":"x"},{"From":"f@example.com","To":"b@example.com","TextBody":"x","MessageStream":"alerts"}]`)
 	var sent []map[string]any
-	json.Unmarshal(fake.last(t).body, &sent)
+	mustUnmarshal(t, fake.last(t).body, &sent)
 	if sent[0]["MessageStream"] != "broadcast" || sent[1]["MessageStream"] != "alerts" {
 		t.Errorf("streams: %v", sent)
 	}
@@ -319,7 +319,7 @@ func TestHandleSMTP(t *testing.T) {
 		t.Fatalf("id=%q err=%v", id, err)
 	}
 	var sent map[string]any
-	json.Unmarshal(fake.last(t).body, &sent)
+	mustUnmarshal(t, fake.last(t).body, &sent)
 	if sent["From"] != "noreply@example.com" || sent["MessageStream"] != "alerts" || sent["TextBody"] != "hello\r\n" {
 		t.Errorf("sent %v", sent)
 	}
@@ -407,5 +407,13 @@ func TestRawJSONAliasesInput(t *testing.T) {
 	body[2] = 'X'
 	if elems[0][1] != 'X' {
 		t.Fatal("encoding/json copied the value; rawJSON must copy too (see normalizeBatch)")
+	}
+}
+
+// mustUnmarshal decodes JSON into v, failing the test if it is malformed.
+func mustUnmarshal(t *testing.T, data []byte, v any) {
+	t.Helper()
+	if err := json.Unmarshal(data, v); err != nil {
+		t.Fatalf("decoding %s: %v", data, err)
 	}
 }

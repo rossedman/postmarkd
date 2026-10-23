@@ -177,6 +177,8 @@ func forwardHeader(name string) bool {
 	return strings.HasPrefix(name, "X-") && !strings.HasPrefix(name, "X-Pm-")
 }
 
+// walk adds the bodies and attachments of a MIME part to m, recursing into
+// multipart parts up to maxNesting deep. scratch is reused between parts.
 func walk(m *Message, h textproto.MIMEHeader, body io.Reader, scratch *bytes.Buffer, depth int) error {
 	if depth > maxNesting {
 		return errors.New("message nests multipart parts too deeply")
@@ -311,6 +313,8 @@ func validBase64(b []byte) bool {
 	return true
 }
 
+// addressList parses an address header, treating an empty header or
+// "undisclosed-recipients" as no addresses.
 func addressList(h mail.Header, key string) ([]*mail.Address, error) {
 	v := h.Get(key)
 	if strings.TrimSpace(v) == "" || strings.Contains(v, "undisclosed-recipients") {
@@ -339,6 +343,8 @@ func format(list []*mail.Address) string {
 	return strings.Join(parts, ", ")
 }
 
+// decodeHeader decodes RFC 2047 encoded words in s, falling back to the
+// raw text if they are malformed.
 func decodeHeader(s string) string {
 	d, err := wordDecoder.DecodeHeader(s)
 	if err != nil {
@@ -359,6 +365,7 @@ func toUTF8(b []byte, charset string) string {
 	return string(b)
 }
 
+// latin1 converts ISO-8859-1 bytes to a UTF-8 string.
 func latin1(b []byte) string {
 	r := make([]rune, len(b))
 	for i, c := range b {
@@ -367,6 +374,8 @@ func latin1(b []byte) string {
 	return string(r)
 }
 
+// charsetReader decodes the 8-bit charsets mail commonly declares besides
+// UTF-8 and US-ASCII; mime and net/mail call it for anything else.
 func charsetReader(charset string, input io.Reader) (io.Reader, error) {
 	switch strings.ToLower(charset) {
 	case "windows-1252", "cp1252", "latin1":
@@ -379,6 +388,7 @@ func charsetReader(charset string, input io.Reader) (io.Reader, error) {
 	return nil, fmt.Errorf("unsupported charset %q", charset)
 }
 
+// extension picks a file extension for an attachment that has no name.
 func extension(ctype string) string {
 	if exts, _ := mime.ExtensionsByType(ctype); len(exts) > 0 {
 		return exts[0]

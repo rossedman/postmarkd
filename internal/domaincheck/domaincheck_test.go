@@ -67,14 +67,14 @@ func TestPostmarkAPI(t *testing.T) {
 	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("X-Postmark-Account-Token") != "acct" {
 			w.WriteHeader(401)
-			w.Write([]byte(`{"Message":"bad token"}`))
+			_, _ = w.Write([]byte(`{"Message":"bad token"}`))
 			return
 		}
 		switch r.URL.Path {
 		case "/domains":
-			w.Write([]byte(`{"TotalCount":1,"Domains":[{"ID":7,"Name":"example.com"}]}`))
+			_, _ = w.Write([]byte(`{"TotalCount":1,"Domains":[{"ID":7,"Name":"example.com"}]}`))
 		case "/domains/7":
-			w.Write([]byte(`{"ID":7,"Name":"example.com","DKIMVerified":false,"DKIMPendingHost":"2026pm._domainkey.example.com","DKIMPendingTextValue":"k=rsa;p=ABC","ReturnPathDomain":"bounce.example.com","ReturnPathDomainVerified":true}`))
+			_, _ = w.Write([]byte(`{"ID":7,"Name":"example.com","DKIMVerified":false,"DKIMPendingHost":"2026pm._domainkey.example.com","DKIMPendingTextValue":"k=rsa;p=ABC","ReturnPathDomain":"bounce.example.com","ReturnPathDomainVerified":true}`))
 		}
 	}))
 	defer api.Close()

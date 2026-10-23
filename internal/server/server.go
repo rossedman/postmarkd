@@ -69,14 +69,14 @@ func New(cfg config.Config, sender Sender, m *metrics.Metrics, log *slog.Logger)
 		mux.Handle("POST "+ep.path, s.authenticate(s.send(ep)))
 	}
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
-		io.WriteString(w, "ok\n")
+		_, _ = io.WriteString(w, "ok\n")
 	})
 	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, _ *http.Request) {
 		if !s.ready.Load() {
 			http.Error(w, "not ready", http.StatusServiceUnavailable)
 			return
 		}
-		io.WriteString(w, "ready\n")
+		_, _ = io.WriteString(w, "ready\n")
 	})
 	if bh, ok := sender.(*blackhole.Sender); ok {
 		mux.Handle("GET /blackhole/messages", s.authenticate(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -113,6 +113,8 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	return s.queue.Shutdown(ctx)
 }
 
+// send returns the handler for a sending endpoint: it validates and
+// normalizes the body, then forwards it to Postmark or queues it.
 func (s *Server) send(ep endpoint) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		rid := requestID(r)
@@ -145,10 +147,11 @@ func (s *Server) send(ep endpoint) http.HandlerFunc {
 			return
 		}
 
+		// A blank override (e.g. "?stream=%20") keeps the configured default.
 		d := s.defaults
-		if stream := r.Header.Get("X-Postmarkd-Stream"); stream != "" {
+		if stream := strings.TrimSpace(r.Header.Get("X-Postmarkd-Stream")); stream != "" {
 			d.MessageStream = stream
-		} else if stream := r.URL.Query().Get("stream"); stream != "" {
+		} else if stream := strings.TrimSpace(r.URL.Query().Get("stream")); stream != "" {
 			d.MessageStream = stream
 		}
 		out, n, aerr := prepare(ep, body, d)
@@ -194,7 +197,7 @@ func (s *Server) send(ep endpoint) http.HandlerFunc {
 		}
 		w.Header().Set("Content-Type", ct)
 		w.WriteHeader(res.StatusCode)
-		w.Write(res.Body)
+		_, _ = w.Write(res.Body) // the client went away; nothing to do
 	}
 }
 
@@ -235,7 +238,7 @@ func (s *Server) deliver(ctx context.Context, j queue.Job) {
 	}
 	for _, ep := range endpoints {
 		if ep.name == j.Endpoint {
-			s.forward(ctx, ep, j.Body, j.Messages, log)
+			_, _ = s.forward(ctx, ep, j.Body, j.Messages, log) // forward logs and counts failures
 			return
 		}
 	}
@@ -269,12 +272,14 @@ func (s *Server) HandleSMTP(ctx context.Context, env smtpd.Envelope, data []byte
 		return reject(http.StatusBadGateway, 451, "4.4.1 Postmark unreachable, try again later")
 	}
 	status = res.StatusCode
+	// A body that isn't JSON leaves r zero and falls through to the
+	// status code checks below.
 	var r sendResult
-	json.Unmarshal(res.Body, &r)
+	_ = json.Unmarshal(res.Body, &r)
 	switch {
 	case res.StatusCode == 200 && r.ErrorCode == 0:
 		var ok struct{ MessageID string }
-		json.Unmarshal(res.Body, &ok)
+		_ = json.Unmarshal(res.Body, &ok) // parsed as JSON just above
 		return ok.MessageID, nil
 	case res.StatusCode == 429 || res.StatusCode >= 500:
 		return "", &smtpd.Error{Code: 451, Message: fmt.Sprintf("4.3.0 Postmark error %d: %s", r.ErrorCode, r.Message)}
@@ -293,6 +298,8 @@ func (s *Server) SMTPAuth() func(user, pass string) bool {
 	return func(_, pass string) bool { return s.validToken(pass) }
 }
 
+// validToken reports whether got matches one of the configured tokens,
+// comparing in constant time.
 func (s *Server) validToken(got string) bool {
 	ok := 0
 	for _, t := range s.tokens {
@@ -325,6 +332,8 @@ func (s *Server) authenticate(next http.Handler) http.Handler {
 	})
 }
 
+// recover turns a panic in next into a logged 500 response, leaving
+// http.ErrAbortHandler to net/http.
 func (s *Server) recover(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {
@@ -340,6 +349,8 @@ func (s *Server) recover(next http.Handler) http.Handler {
 	})
 }
 
+// isAsync reports whether the client asked for the request to be queued,
+// with the X-Postmarkd-Async header or the async query parameter.
 func isAsync(r *http.Request) bool {
 	v := r.Header.Get("X-Postmarkd-Async")
 	if v == "" {
@@ -349,6 +360,8 @@ func isAsync(r *http.Request) bool {
 	return b
 }
 
+// requestID returns the client's X-Request-Id if it has a sane length, or
+// a new random ID.
 func requestID(r *http.Request) string {
 	if id := r.Header.Get("X-Request-Id"); id != "" && len(id) <= 128 {
 		return id
@@ -373,10 +386,12 @@ type reqLog struct {
 	async  bool
 }
 
+// enabled reports whether the logger handles level.
 func (r reqLog) enabled(level slog.Level) bool {
 	return r.l.Enabled(context.Background(), level)
 }
 
+// log logs msg with the request's attributes followed by args.
 func (r reqLog) log(level slog.Level, msg string, args ...any) {
 	if !r.enabled(level) {
 		return
@@ -388,8 +403,9 @@ func (r reqLog) log(level slog.Level, msg string, args ...any) {
 	r.l.Log(context.Background(), level, msg, append(attrs, args...)...)
 }
 
+// writeJSON writes v as a JSON response with the given status.
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(v)
+	_ = json.NewEncoder(w).Encode(v) // the client went away; nothing to do
 }

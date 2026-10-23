@@ -46,7 +46,7 @@ func blackholeServer(b *testing.B) *Server {
 	cfg.Blackhole = true
 	cfg.BlackholeKeep = 0
 	s := New(cfg, blackhole.New(0), metrics.New(), discard())
-	b.Cleanup(func() { s.Shutdown(context.Background()) })
+	b.Cleanup(func() { _ = s.Shutdown(context.Background()) })
 	return s
 }
 
@@ -114,8 +114,8 @@ func BenchmarkUnixSocket(b *testing.B) {
 		b.Fatal(err)
 	}
 	srv := &http.Server{Handler: s}
-	go srv.Serve(l)
-	b.Cleanup(func() { srv.Close() })
+	go func() { _ = srv.Serve(l) }()
+	b.Cleanup(func() { _ = srv.Close() })
 
 	client := &http.Client{Transport: &http.Transport{
 		MaxIdleConnsPerHost: 512,
@@ -132,8 +132,8 @@ func BenchmarkUnixSocket(b *testing.B) {
 			if err != nil {
 				b.Fatal(err)
 			}
-			io.Copy(io.Discard, res.Body)
-			res.Body.Close()
+			_, _ = io.Copy(io.Discard, res.Body)
+			_ = res.Body.Close()
 			if res.StatusCode != 200 {
 				b.Fatalf("status %d", res.StatusCode)
 			}
@@ -147,9 +147,9 @@ func BenchmarkUnixSocket(b *testing.B) {
 // on top of the Postmark round trip when upstream latency is zero.
 func BenchmarkProxy(b *testing.B) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		io.Copy(io.Discard, r.Body)
+		_, _ = io.Copy(io.Discard, r.Body)
 		w.Header().Set("Content-Type", "application/json")
-		io.WriteString(w, `{"To":"ada@example.com","SubmittedAt":"2026-10-07T12:00:00Z","MessageID":"b7bc2f4a-e38e-4336-af7d-e6c392c2f817","ErrorCode":0,"Message":"OK"}`)
+		_, _ = io.WriteString(w, `{"To":"ada@example.com","SubmittedAt":"2026-10-07T12:00:00Z","MessageID":"b7bc2f4a-e38e-4336-af7d-e6c392c2f817","ErrorCode":0,"Message":"OK"}`)
 	}))
 	b.Cleanup(upstream.Close)
 
@@ -157,7 +157,7 @@ func BenchmarkProxy(b *testing.B) {
 	cfg.ServerToken = "t"
 	pm := postmark.New(postmark.Options{BaseURL: upstream.URL, ServerToken: "t", MaxConcurrency: 128})
 	s := New(cfg, pm, metrics.New(), discard())
-	b.Cleanup(func() { s.Shutdown(context.Background()) })
+	b.Cleanup(func() { _ = s.Shutdown(context.Background()) })
 
 	sock := filepath.Join(b.TempDir(), "postmarkd.sock")
 	l, err := net.Listen("unix", sock)
@@ -165,8 +165,8 @@ func BenchmarkProxy(b *testing.B) {
 		b.Fatal(err)
 	}
 	srv := &http.Server{Handler: s}
-	go srv.Serve(l)
-	b.Cleanup(func() { srv.Close() })
+	go func() { _ = srv.Serve(l) }()
+	b.Cleanup(func() { _ = srv.Close() })
 	client := &http.Client{Transport: &http.Transport{
 		MaxIdleConnsPerHost: 512,
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
@@ -183,8 +183,8 @@ func BenchmarkProxy(b *testing.B) {
 			if err != nil {
 				b.Fatal(err)
 			}
-			io.Copy(io.Discard, res.Body)
-			res.Body.Close()
+			_, _ = io.Copy(io.Discard, res.Body)
+			_ = res.Body.Close()
 			if res.StatusCode != 200 {
 				b.Fatalf("status %d", res.StatusCode)
 			}
