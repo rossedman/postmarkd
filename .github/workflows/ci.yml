@@ -11,43 +11,93 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        go: ["1.23", "stable"]
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          go-version: ${{ matrix.go }}
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
       - name: gofmt
         run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
       - run: go vet ./...
-      - run: go test -race ./...
+      - name: Tests with the race detector and the 90% coverage gate
+        run: make cover
+      - name: Doc comments
+        run: go run ./tools/doccheck ./...
+      - name: Benchmarks smoke run
+        run: go test -run='^$' -bench=. -benchtime=1x ./...
       - run: make build
       - name: Verify systemd units
         run: |
           sudo install -m0755 bin/postmarkd /usr/bin/postmarkd
           systemd-analyze verify deploy/systemd/*.service deploy/systemd/*.socket
 
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version: v2.15.0
+
+  vuln:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+
+  fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Run each fuzz target for 30s
+        run: make fuzz FUZZTIME=30s
+
   image:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - run: docker build -t postmarkd:ci .
       - name: Smoke test
         run: |
           docker run -d --name pm -p 8025:8025 -e POSTMARKD_BLACKHOLE=true -e POSTMARKD_DEFAULT_FROM=ci@example.com postmarkd:ci
-          for i in $(seq 20); do docker exec pm /usr/bin/postmarkd healthcheck && break; sleep 1; done
+          for _ in $(seq 20); do docker exec pm /usr/bin/postmarkd healthcheck && break; sleep 1; done
           curl -sf localhost:8025/email -d '{"To":"a@example.com","Subject":"ci","TextBody":"hi"}'
           curl -sf localhost:8025/blackhole/messages | grep -q '"Subject":"ci"'
 
   site:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          go-version: stable
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: site/go.mod
           cache-dependency-path: site/go.sum
       - name: Build the docs site (fails on broken links)
         working-directory: site
@@ -58,13 +108,15 @@ jobs:
 
   bench:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: head
-      - uses: actions/setup-go@v7
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: stable
+          go-version-file: head/go.mod
           cache-dependency-path: head/go.mod
       - run: go install golang.org/x/perf/cmd/benchstat@latest
       - name: Benchmark this commit
@@ -72,9 +124,12 @@ jobs:
         run: make bench | tee ../new.txt
       - name: Benchmark the base branch
         if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          REPO: ${{ github.repository }}
         run: |
-          git clone --quiet --depth 1 --branch "${{ github.base_ref }}" \
-            "https://github.com/${{ github.repository }}" base
+          git clone --quiet --depth 1 --branch "$BASE_REF" \
+            "https://github.com/$REPO" base
           # Run the PR's benchmarks against the base code, so both sides
           # measure the same thing. Skip if the base can't build them.
           (cd head && find internal -name bench_test.go) | while read -r f; do cp "head/$f" "base/$f"; done
@@ -85,18 +140,20 @@ jobs:
           fi
       - name: Compare
         if: github.event_name == 'pull_request' && hashFiles('old.txt') != ''
+        env:
+          BASE_REF: ${{ github.base_ref }}
         run: |
           set +e
           head/scripts/bench-compare.sh old.txt new.txt > compare.txt 2>&1
           status=$?
-          { echo '## Benchmarks vs ${{ github.base_ref }}'; echo '```'; cat compare.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          { echo "## Benchmarks vs $BASE_REF"; echo '```'; cat compare.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           cat compare.txt
           exit $status
       - name: Summary
         if: github.event_name != 'pull_request'
         run: |
           { echo '## Benchmarks'; echo '```'; benchstat new.txt; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: benchmarks
           path: new.txt

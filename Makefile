@@ -1,3 +1,5 @@
+SHELL := bash
+
 BINARY   := postmarkd
 VERSION  ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 LDFLAGS  := -s -w -X main.version=$(VERSION)
@@ -8,7 +10,7 @@ UNITDIR    ?= $(PREFIX)/lib/systemd/system
 SYSUSERSDIR?= $(PREFIX)/lib/sysusers.d
 DESTDIR    ?=
 
-.PHONY: all build test race vet fmt lint bench site site-serve brand install install-sendmail uninstall docker clean
+.PHONY: all build test race cover vet fmt lint vuln doccheck bench fuzz check site site-serve brand install install-sendmail uninstall docker clean
 
 all: vet test build
 
@@ -20,6 +22,14 @@ test:
 
 race:
 	go test -race ./...
+
+# Race tests plus the coverage gate: 90% of hand-written statements.
+# Generated files (listed by tools/generated) and examples/ are excluded.
+COVERMIN ?= 90
+cover:
+	go test -race -coverprofile=coverage.out ./...
+	{ head -1 coverage.out; grep -v '^mode:' coverage.out | grep -vFf <(go run ./tools/generated ./...) | grep -v '/examples/'; } > coverage.hand.out
+	go tool cover -func=coverage.hand.out | awk -v min=$(COVERMIN) '/^total:/ {sub("%","",$$3); print "coverage " $$3 "%"; if ($$3+0 < min) {print "coverage below " min "%"; exit 1}}'
 
 vet:
 	go vet ./...
@@ -47,6 +57,28 @@ brand:
 
 lint: vet
 	@test -z "$$(gofmt -l .)" || (echo "gofmt needed:"; gofmt -l .; exit 1)
+	golangci-lint run ./...
+
+vuln:
+	go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+
+doccheck:
+	go run ./tools/doccheck ./...
+
+# Run every fuzz target for FUZZTIME each.
+FUZZTIME ?= 10s
+fuzz:
+	@set -e; for pkg in $$(go list ./...); do \
+		for t in $$(go test -list '^Fuzz' $$pkg | grep '^Fuzz' || true); do \
+			echo "== $$pkg $$t"; \
+			go test -run '^$$' -fuzz "^$$t$$" -fuzztime $(FUZZTIME) $$pkg; \
+		done; \
+	done
+
+# Everything CI checks, minus the container and site builds.
+check: lint cover doccheck vuln fuzz
+	go test -run '^$$' -bench . -benchtime 1x ./...
+	goreleaser check
 
 install: build
 	install -Dm0755 bin/$(BINARY) $(DESTDIR)$(PREFIX)/bin/$(BINARY)
@@ -81,4 +113,4 @@ docker:
 	docker build --build-arg VERSION=$(VERSION) -t postmarkd:$(VERSION) .
 
 clean:
-	rm -rf bin dist _site
+	rm -rf bin dist _site coverage.out coverage.hand.out
