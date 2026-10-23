@@ -67,11 +67,9 @@ func FuzzPrepare(f *testing.F) {
 			t.Fatalf("prepare modified its input")
 		}
 
-		if !ambiguousKeys(body, ep.kind) {
-			out2, n2, err2 := prepare(ep, body, d)
-			if !bytes.Equal(out, out2) || n != n2 || !sameErr(err, err2) {
-				t.Fatalf("nondeterministic: (%s, %d, %v) then (%s, %d, %v)", out, n, err, out2, n2, err2)
-			}
+		out2, n2, err2 := prepare(ep, body, d)
+		if !bytes.Equal(out, out2) || n != n2 || !sameErr(err, err2) {
+			t.Fatalf("nondeterministic: (%s, %d, %v) then (%s, %d, %v)", out, n, err, out2, n2, err2)
 		}
 
 		if err != nil {
@@ -81,7 +79,7 @@ func FuzzPrepare(f *testing.F) {
 			if err.Status != 422 || (err.ErrorCode != codeInvalidRequest && err.ErrorCode != codeInvalidJSON) || err.Message == "" {
 				t.Fatalf("unexpected error shape %+v", err)
 			}
-			if d == (defaults{}) && !ambiguousKeys(body, ep.kind) {
+			if d == (defaults{}) {
 				if msgs, ok := splitMessages(ep.kind, body); ok && allValid(t, msgs, ep.kind) {
 					t.Fatalf("rejected (%s) a body the oracle accepts: %q", err.Message, body)
 				}
@@ -103,9 +101,6 @@ func FuzzPrepare(f *testing.F) {
 			t.Fatalf("rewrote a body with no defaults to apply:\n in: %q\nout: %q", body, out)
 		}
 
-		if ambiguousKeys(body, ep.kind) {
-			return // known bug: see ambiguousKeys
-		}
 		msgs, ok := splitMessages(ep.kind, out)
 		if !ok {
 			t.Fatalf("accepted body has the wrong shape for %s: %q", ep.name, out)
@@ -113,27 +108,24 @@ func FuzzPrepare(f *testing.F) {
 		if len(msgs) != n || n < 1 || n > maxBatch {
 			t.Fatalf("n = %d, body holds %d messages", n, len(msgs))
 		}
-		if !blankDefault(d) {
-			for i, m := range msgs {
-				o := decodeOracle(t, m)
-				if !o.valid(ep.kind) {
-					t.Fatalf("accepted message %d fails the oracle: %q", i, m)
-				}
-				if strings.TrimSpace(d.From) != "" && !nonBlankOracle(o.From) {
-					t.Fatalf("message %d: default From not applied: %q", i, m)
-				}
-				if strings.TrimSpace(d.MessageStream) != "" && !nonBlankOracle(o.MessageStream) {
-					t.Fatalf("message %d: default MessageStream not applied: %q", i, m)
-				}
+		for i, m := range msgs {
+			o := decodeOracle(t, m)
+			if !o.valid(ep.kind) {
+				t.Fatalf("accepted message %d fails the oracle: %q", i, m)
 			}
+			if strings.TrimSpace(d.From) != "" && !nonBlankOracle(o.From) {
+				t.Fatalf("message %d: default From not applied: %q", i, m)
+			}
+			if strings.TrimSpace(d.MessageStream) != "" && !nonBlankOracle(o.MessageStream) {
+				t.Fatalf("message %d: default MessageStream not applied: %q", i, m)
+			}
+		}
 
-			// Defaults are now present, so a second pass must forward the
-			// body byte-for-byte. (Whitespace-only defaults are excluded
-			// above: see blankDefault.)
-			out2, n2, err2 := prepare(ep, out, d)
-			if err2 != nil || n2 != n || !bytes.Equal(out2, out) {
-				t.Fatalf("not idempotent:\n in: %q\nout: %q\nagain: %q (%d, %v)", body, out, out2, n2, err2)
-			}
+		// Defaults are now present, so a second pass must forward the body
+		// byte-for-byte.
+		again, n3, err3 := prepare(ep, out, d)
+		if err3 != nil || n3 != n || !bytes.Equal(again, out) {
+			t.Fatalf("not idempotent:\n in: %q\nout: %q\nagain: %q (%d, %v)", body, out, again, n3, err3)
 		}
 	})
 }
@@ -157,8 +149,7 @@ func FuzzBlankString(f *testing.F) {
 				t.Fatalf("%q: %v", quoted, err)
 			}
 			want := strings.TrimSpace(decoded) == ""
-			got := blankString(quoted)
-			if got != want && !rawUnicodeSpaceBug(quoted, got, want) {
+			if got := blankString(quoted); got != want {
 				t.Fatalf("blankString(%q) = %v; decoded %q, TrimSpace blank = %v", quoted, got, decoded, want)
 			}
 		}
@@ -233,14 +224,6 @@ func FuzzOutcome(f *testing.F) {
 	})
 }
 
-// blankDefault reports whether a default is set but whitespace-only. That
-// is a known bug: prepare injects it verbatim (e.g. from "?stream=%20"),
-// forwarding a blank field, and preparing the result again rewrites it.
-func blankDefault(d defaults) bool {
-	return d.From != "" && strings.TrimSpace(d.From) == "" ||
-		d.MessageStream != "" && strings.TrimSpace(d.MessageStream) == ""
-}
-
 func abs(x int) int {
 	if x < 0 {
 		return -x
@@ -272,7 +255,7 @@ func splitMessages(k kind, body []byte) ([]json.RawMessage, bool) {
 		return ms, true
 	default:
 		var w struct{ Messages json.RawMessage }
-		if !isJSON(body, '{') || json.Unmarshal(body, &w) != nil || !isJSON(w.Messages, '[') {
+		if !isJSON(body, '{') || json.Unmarshal(body, &w) != nil || !isJSON(w.Messages, '[') || repeated(body, "Messages") {
 			return nil, false
 		}
 		return splitMessages(kindBatch, w.Messages)
@@ -286,13 +269,20 @@ type oracle struct {
 	TemplateID                   json.RawMessage `json:"TemplateId"`
 	TemplateAlias, MessageStream json.RawMessage
 	object                       bool
+	// dup is set when a checked field appears more than once under any
+	// spelling; postmarkd rejects such messages.
+	dup bool
 }
+
+// checked are the message fields postmarkd validates or rewrites.
+var checked = []string{"From", "To", "Cc", "Bcc", "HtmlBody", "TextBody", "TemplateId", "TemplateAlias", "MessageStream"}
 
 func decodeOracle(t *testing.T, m json.RawMessage) oracle {
 	t.Helper()
 	var o oracle
 	if isJSON(m, '{') {
 		o.object = json.Unmarshal(m, &o) == nil
+		o.dup = repeated(m, checked...)
 	}
 	return o
 }
@@ -302,16 +292,11 @@ func nonBlankOracle(raw json.RawMessage) bool {
 	if len(raw) == 0 || raw[0] != '"' || json.Unmarshal(raw, &s) != nil {
 		return false
 	}
-	if strings.TrimSpace(s) == "" {
-		// Known bug: postmarkd treats unescaped Unicode whitespace as
-		// content; follow it so the other properties stay checked.
-		return rawUnicodeSpaceBug(raw, blankString(raw), true)
-	}
-	return true
+	return strings.TrimSpace(s) != ""
 }
 
 func (o oracle) valid(k kind) bool {
-	if !o.object || !nonBlankOracle(o.From) || (!nonBlankOracle(o.To) && !nonBlankOracle(o.Cc) && !nonBlankOracle(o.Bcc)) {
+	if !o.object || o.dup || !nonBlankOracle(o.From) || (!nonBlankOracle(o.To) && !nonBlankOracle(o.Cc) && !nonBlankOracle(o.Bcc)) {
 		return false
 	}
 	if k == kindTemplate || k == kindTemplateBatch {
@@ -329,59 +314,33 @@ func allValid(t *testing.T, msgs []json.RawMessage, k kind) bool {
 	return true
 }
 
-// rawUnicodeSpaceBug reports whether a disagreement between blankString
-// (got) and strings.TrimSpace (want) is the known bug: blankString's fast
-// path only treats ASCII space, tab, CR and LF as blank, so a string of
-// unescaped non-ASCII whitespace such as U+00A0 or U+2028 is "not blank"
-// while the same string written with \u escapes is blank.
-func rawUnicodeSpaceBug(quoted []byte, got, want bool) bool {
-	return want && !got && bytes.ContainsFunc(quoted, func(r rune) bool { return r >= 0x80 })
-}
-
-// ambiguousKeys reports whether a field postmarkd rewrites appears in an
-// object under two or more spellings, none of them exact. message.key then
-// picks one at random (map iteration order), which is a known bug that
-// makes the verdict nondeterministic.
-func ambiguousKeys(body []byte, k kind) bool {
-	var objs []json.RawMessage
-	switch k {
-	case kindBatch:
-		_ = json.Unmarshal(body, &objs)
-	case kindTemplateBatch:
-		var w map[string]json.RawMessage
-		_ = json.Unmarshal(body, &w)
-		if ambiguous(w, "Messages") {
-			return true
+// repeated reports whether any of names occurs more than once among the
+// top-level keys of the JSON object obj, compared case-insensitively. It
+// walks the tokens, so unlike a map decode it sees identical keys too.
+func repeated(obj []byte, names ...string) bool {
+	dec := json.NewDecoder(bytes.NewReader(obj))
+	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
+		return false
+	}
+	count := map[string]int{}
+	for dec.More() {
+		tok, err := dec.Token()
+		if err != nil {
+			return false
 		}
-		for name, v := range w {
-			if strings.EqualFold(name, "Messages") {
-				var ms []json.RawMessage
-				_ = json.Unmarshal(v, &ms)
-				objs = append(objs, ms...)
+		key, _ := tok.(string)
+		for _, n := range names {
+			if strings.EqualFold(key, n) {
+				count[n]++
+				if count[n] > 1 {
+					return true
+				}
 			}
 		}
-	default:
-		objs = []json.RawMessage{body}
-	}
-	for _, o := range objs {
-		var m map[string]json.RawMessage
-		_ = json.Unmarshal(o, &m)
-		if ambiguous(m, "From") || ambiguous(m, "MessageStream") {
-			return true
+		var skip json.RawMessage
+		if dec.Decode(&skip) != nil {
+			return false
 		}
 	}
 	return false
-}
-
-func ambiguous(m map[string]json.RawMessage, name string) bool {
-	if _, exact := m[name]; exact {
-		return false
-	}
-	n := 0
-	for k := range m {
-		if strings.EqualFold(k, name) {
-			n++
-		}
-	}
-	return n > 1
 }

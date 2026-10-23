@@ -307,6 +307,9 @@ func TestStreamHeaderOverridesQuery(t *testing.T) {
 		{"/email", nil, "outbound"},
 		{"/email?stream=q", nil, "q"},
 		{"/email?stream=q", []string{"X-Postmarkd-Stream", "h"}, "h"},
+		{"/email?stream=%20", nil, "outbound"}, // blank overrides keep the default
+		{"/email?stream=%20q%20", nil, "q"},
+		{"/email?stream=q", []string{"X-Postmarkd-Stream", " "}, "q"},
 	}
 	for _, c := range cases {
 		if w := do(s, "POST", c.path, validEmail, c.hdr...); w.Code != 200 {

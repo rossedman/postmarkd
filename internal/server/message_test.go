@@ -89,6 +89,11 @@ func TestBlankString(t *testing.T) {
 		{"\"\\u000b\\f\"", true}, // vertical tab and form feed are space too
 		{"\"\\u00a0\"", true},    // escaped NBSP
 		{"\"\\u2028 \"", true},   // escaped line separator
+		{"\"\u00a0\"", true},     // raw NBSP, same verdict as escaped
+		{"\" \u2028\u3000 \"", true},
+		{"\"\u0085\"", true}, // raw next line
+		{"\"\u00a0a\"", false},
+		{"\"caf\u00e9\"", false},
 		{`"a"`, false},
 		{`"  a  "`, false},
 		{`"\n a"`, false},
@@ -353,5 +358,77 @@ func TestOutcome(t *testing.T) {
 		if sent != c.sent || failed != c.failed || firstErr != c.firstErr {
 			t.Errorf("%s: outcome = %d, %d, %q; want %d, %d, %q", c.name, sent, failed, firstErr, c.sent, c.failed, c.firstErr)
 		}
+	}
+}
+
+// TestPrepareRawUnicodeWhitespace checks that a field holding only raw
+// Unicode whitespace is blank, exactly as when it is written with escapes.
+func TestPrepareRawUnicodeWhitespace(t *testing.T) {
+	t.Parallel()
+	email := endpoints[0]
+	for _, from := range []string{"\u00a0", "\u2028", "\u3000", "\u0085", " \u00a0 "} {
+		body := []byte(`{"From":"` + from + `","To":"a@example.com","TextBody":"t"}`)
+		if _, _, err := prepare(email, body, defaults{}); err == nil || !strings.Contains(err.Message, "'From' is required") {
+			t.Errorf("From %q with no default: err = %v, want 'From' is required", from, err)
+		}
+		out, _, err := prepare(email, body, defaults{From: "d@example.com"})
+		if err != nil {
+			t.Fatalf("From %q with a default: %v", from, err)
+		}
+		var m map[string]string
+		mustUnmarshal(t, out, &m)
+		if m["From"] != "d@example.com" {
+			t.Errorf("From %q: default not applied: %s", from, out)
+		}
+	}
+}
+
+// TestPrepareDuplicateFields checks that a checked field given more than
+// once, under the same or a different spelling, is rejected every time
+// rather than resolved by chance.
+func TestPrepareDuplicateFields(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		ep    int
+		body  string
+		field string
+	}{
+		{0, `{"from":" ","FROM":" ","To":"b@example.com","TextBody":"x"}`, "From"},
+		{0, `{"From":"a@example.com","from":"c@example.com","To":"b@example.com","TextBody":"x"}`, "From"},
+		{0, `{"From":"a@example.com","To":"b@example.com","To":"c@example.com","TextBody":"x"}`, "To"},
+		{0, `{"From":"a@example.com","To":"b@example.com","TextBody":"x","textbody":"y"}`, "TextBody"},
+		{0, `{"From":"a@example.com","To":"b@example.com","TextBody":"x","MessageStream":"a","messagestream":"b"}`, "MessageStream"},
+		{1, `[{"From":"a@example.com","To":"b@example.com","TextBody":"x"},{"From":"a@example.com","cc":"x","CC":"y","TextBody":"x"}]`, "Cc"},
+		{2, `{"From":"a@example.com","To":"b@example.com","TemplateId":1,"templateid":2}`, "TemplateId"},
+		{3, `{"messages":[],"MESSAGES":[{"From":"a@example.com","To":"b@example.com","TemplateId":1}]}`, "Messages"},
+		{3, `{"Messages":[],"Messages":[{"From":"a@example.com","To":"b@example.com","TemplateId":1}]}`, "Messages"},
+	}
+	for _, c := range cases {
+		for range 20 { // map iteration used to make this random
+			_, _, err := prepare(endpoints[c.ep], []byte(c.body), defaults{From: "d@example.com"})
+			if err == nil || err.Status != 422 || !strings.Contains(err.Message, "'"+c.field+"' appears more than once") {
+				t.Fatalf("%s: err = %v, want '%s' appears more than once", c.body, err, c.field)
+			}
+		}
+	}
+}
+
+// TestPrepareBlankDefaults checks that whitespace-only defaults are
+// ignored rather than injected as blank fields.
+func TestPrepareBlankDefaults(t *testing.T) {
+	t.Parallel()
+	email := endpoints[0]
+	body := []byte(`{"From":"a@example.com","To":"b@example.com","TextBody":"x"}`)
+	out, _, err := prepare(email, body, defaults{From: "  ", MessageStream: " \t"})
+	if err != nil || string(out) != string(body) {
+		t.Errorf("blank defaults changed the body: %s, %v", out, err)
+	}
+	noFrom := []byte(`{"To":"b@example.com","TextBody":"x"}`)
+	if _, _, err := prepare(email, noFrom, defaults{From: " "}); err == nil || !strings.Contains(err.Message, "'From' is required") {
+		t.Errorf("a blank default From satisfied the From check: %v", err)
+	}
+	out, _, err = prepare(email, noFrom, defaults{From: " d@example.com "})
+	if err != nil || !strings.Contains(string(out), `"From":"d@example.com"`) {
+		t.Errorf("default From not trimmed: %s, %v", out, err)
 	}
 }

@@ -147,10 +147,11 @@ func (s *Server) send(ep endpoint) http.HandlerFunc {
 			return
 		}
 
+		// A blank override (e.g. "?stream=%20") keeps the configured default.
 		d := s.defaults
-		if stream := r.Header.Get("X-Postmarkd-Stream"); stream != "" {
+		if stream := strings.TrimSpace(r.Header.Get("X-Postmarkd-Stream")); stream != "" {
 			d.MessageStream = stream
-		} else if stream := r.URL.Query().Get("stream"); stream != "" {
+		} else if stream := strings.TrimSpace(r.URL.Query().Get("stream")); stream != "" {
 			d.MessageStream = stream
 		}
 		out, n, aerr := prepare(ep, body, d)

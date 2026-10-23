@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 )
 
 // maxBatch is Postmark's limit on messages per batch request.
@@ -15,6 +16,8 @@ const maxBatch = 500
 type message map[string]json.RawMessage
 
 // key returns the stored spelling of name, matched case-insensitively.
+// Callers reject messages that spell a field more than one way before
+// relying on this, so at most one key matches.
 func (m message) key(name string) (string, bool) {
 	if _, ok := m[name]; ok {
 		return name, true
@@ -104,9 +107,15 @@ func invalid(format string, args ...any) *apiError {
 	return &apiError{Status: 422, ErrorCode: codeInvalidRequest, Message: fmt.Sprintf(format, args...)}
 }
 
+// duplicate returns the error for a field given more than once.
+func duplicate(name string) *apiError {
+	return invalid("'%s' appears more than once (field names are case-insensitive)", name)
+}
+
 var errInvalidJSON = &apiError{Status: 422, ErrorCode: codeInvalidJSON, Message: "Invalid JSON"}
 
-// defaults are applied to every message that omits the field.
+// defaults are applied to every message that omits the field. Blank
+// defaults are ignored.
 type defaults struct {
 	From          string
 	MessageStream string
@@ -119,6 +128,7 @@ type defaults struct {
 // each message is scanned once for the few fields postmarkd checks, and the
 // original bytes are forwarded unchanged unless a default has to be added.
 func prepare(ep endpoint, body []byte, d defaults) ([]byte, int, *apiError) {
+	d.From, d.MessageStream = strings.TrimSpace(d.From), strings.TrimSpace(d.MessageStream)
 	switch ep.kind {
 	case kindEmail, kindTemplate:
 		out, err := normalize(body, ep.kind == kindTemplate, d)
@@ -137,6 +147,12 @@ func prepare(ep endpoint, body []byte, d defaults) ([]byte, int, *apiError) {
 		var wrapper message
 		if !isJSON(body, '{') || json.Unmarshal(body, &wrapper) != nil {
 			return nil, 0, errInvalidJSON
+		}
+		// Decoding into a map keeps one of two identical keys, so count
+		// spellings of Messages with a field decode as well.
+		var w struct{ Messages field }
+		if json.Unmarshal(body, &w) == nil && w.Messages.dup {
+			return nil, 0, duplicate("Messages")
 		}
 		k, ok := wrapper.key("Messages")
 		if !ok {
@@ -213,12 +229,16 @@ func normalizeBatch(body []byte, template bool, d defaults) ([]byte, int, *apiEr
 }
 
 // field records whether a field is present and whether it holds a
-// non-blank string, without copying its value.
-type field struct{ present, null, nonBlank bool }
+// non-blank string, without copying its value. dup is set when the object
+// has the field more than once, under any spelling: encoding/json keeps the
+// last value, but Postmark or a client may read another, so such messages
+// are rejected rather than guessed at.
+type field struct{ present, null, nonBlank, dup bool }
 
 // UnmarshalJSON records that the field is present, and whether it is null
 // or a non-blank string.
 func (f *field) UnmarshalJSON(b []byte) error {
+	f.dup = f.present
 	f.present = true
 	f.null = string(b) == "null"
 	f.nonBlank = len(b) > 2 && b[0] == '"' && !blankString(b)
@@ -229,9 +249,11 @@ func (f *field) UnmarshalJSON(b []byte) error {
 // holds only whitespace.
 func blankString(quoted []byte) bool {
 	for _, c := range quoted[1 : len(quoted)-1] {
-		switch c {
-		case ' ', '\t', '\r', '\n':
-		case '\\': // escapes are rare; decode to be exact
+		switch {
+		case c == ' ' || c == '\t' || c == '\r' || c == '\n':
+		case c == '\\' || c >= utf8.RuneSelf:
+			// Escapes and non-ASCII (which may be Unicode whitespace such
+			// as U+00A0) are rare; decode to agree exactly with str.
 			var s string
 			_ = json.Unmarshal(quoted, &s) // quoted is a valid JSON string
 			return strings.TrimSpace(s) == ""
@@ -258,6 +280,18 @@ func normalize(raw []byte, template bool, d defaults) ([]byte, *apiError) {
 	var f fields
 	if !isJSON(raw, '{') || json.Unmarshal(raw, &f) != nil {
 		return nil, errInvalidJSON
+	}
+	for _, x := range []struct {
+		name string
+		f    *field
+	}{
+		{"From", &f.From}, {"To", &f.To}, {"Cc", &f.Cc}, {"Bcc", &f.Bcc},
+		{"HtmlBody", &f.HtmlBody}, {"TextBody", &f.TextBody},
+		{"TemplateId", &f.TemplateId}, {"TemplateAlias", &f.TemplateAlias}, {"MessageStream", &f.MessageStream},
+	} {
+		if x.f.dup {
+			return nil, duplicate(x.name)
+		}
 	}
 
 	type kv struct{ k, v string }
