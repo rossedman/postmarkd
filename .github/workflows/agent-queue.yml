@@ -1,0 +1,93 @@
+name: agent-queue
+
+# Labeling an issue agent-ready (by hand, or the sarifix workflow when
+# SARIFIX_QUEUE is set) hands it to Claude, which implements it on a branch
+# and opens a pull request. Nightly it picks the oldest agent-ready issue.
+on:
+  issues:
+    types: [labeled]
+  schedule:
+    - cron: "17 7 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  implement:
+    if: github.event_name != 'issues' || github.event.label.name == 'agent-ready'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    concurrency:
+      group: agent-queue-${{ github.event.issue.number || 'scheduled' }}
+      cancel-in-progress: false
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+      actions: read
+    steps:
+      - name: Pick the issue
+        id: pick
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          EVENT_ISSUE: ${{ github.event.issue.number }}
+        run: |
+          set -euo pipefail
+          n="${EVENT_ISSUE:-}"
+          if [ -z "$n" ]; then
+            n=$(gh issue list --label agent-ready --state open --json number,createdAt \
+              --jq 'sort_by(.createdAt) | .[0].number // empty')
+          fi
+          if [ -z "$n" ]; then echo "No agent-ready issues."; exit 0; fi
+          gh issue edit "$n" --add-label agent-working --remove-label agent-ready
+          echo "number=$n" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.pick.outputs.number != ''
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # make check and golangci-lint need the Go toolchain.
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        if: steps.pick.outputs.number != ''
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      # Installs sarifix and the scanners in sarifix.yaml, so Claude can run
+      # the Done when commands of issues the sarifix workflow opens.
+      - uses: rossedman/sarifix@0147bd865e6aec0892fce765f16d48b7ac5eb273 # v0.2.3
+        if: steps.pick.outputs.number != ''
+        with:
+          mode: install
+
+      - name: Implement
+        if: steps.pick.outputs.number != ''
+        uses: anthropics/claude-code-action@8d70a0dd265122bd65b8e09d3d959e65373ae2a1 # v1.0.260
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: |
+            Implement GitHub issue #${{ steps.pick.outputs.number }} in this repository.
+            Read it with `gh issue view ${{ steps.pick.outputs.number }}`. Follow CONTRIBUTING.md.
+            Stay within the issue's scope and acceptance criteria.
+            Run `make check` and any commands under the issue's "Done when" until they pass.
+            Commit on a new branch with Conventional Commit messages, push it, and open a pull
+            request with `gh pr create` whose body explains the change and includes
+            "Closes #${{ steps.pick.outputs.number }}".
+            If the issue is ambiguous or you cannot make the checks pass, stop and comment on
+            the issue explaining what is missing instead of guessing.
+          claude_args: |
+            --max-turns 60
+            --model claude-sonnet-5-5
+            --allowedTools "Read,Edit,Write,Glob,Grep,Bash(git:*),Bash(gh issue view:*),Bash(gh issue comment:*),Bash(gh pr create:*),Bash(make:*),Bash(go test:*),Bash(go build:*),Bash(go vet:*),Bash(gofmt:*),Bash(golangci-lint:*),Bash(sarifix:*),Bash(jq:*)"
+
+      - name: Mark failure
+        if: failure() && steps.pick.outputs.number != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          ISSUE: ${{ steps.pick.outputs.number }}
+        run: gh issue edit "$ISSUE" --add-label agent-failed --remove-label agent-working
