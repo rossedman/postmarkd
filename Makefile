@@ -71,7 +71,7 @@ fuzz:
 	@set -e; for pkg in $$(go list ./...); do \
 		for t in $$(go test -list '^Fuzz' $$pkg | grep '^Fuzz' || true); do \
 			echo "== $$pkg $$t"; \
-			go test -run '^$$' -fuzz "^$$t$$" -fuzztime $(FUZZTIME) $$pkg; \
+			go test -run '^$$' -fuzz "^$$t$$" -fuzztime $(FUZZTIME) -fuzzminimizetime 5s $$pkg; \
 		done; \
 	done
 

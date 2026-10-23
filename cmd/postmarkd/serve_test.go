@@ -179,6 +179,8 @@ func TestServeBlackhole(t *testing.T) {
 	if code := stop(); code != 0 {
 		t.Fatalf("exit %d\n%s", code, stderr)
 	}
+	// serve returns once STOPPING=1 is sent; it may not have been read yet.
+	waitFor(t, "STOPPING=1", func() bool { return strings.Contains(notified.all(), "STOPPING=1") })
 	states := notified.all()
 	for _, want := range []string{"READY=1", "STATUS=Accepting mail on " + sock + ", smtp " + smtpAddr + " (BLACKHOLE MODE)", "STOPPING=1"} {
 		if !strings.Contains(states, want) {

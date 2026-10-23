@@ -9,9 +9,16 @@ Requirements: Go 1.27 or newer, and `make`.
 
 ```sh
 make            # vet, test, build
+make check      # everything CI checks: lint, coverage gate, doccheck, govulncheck, fuzz, benchmarks
 make race       # tests with the race detector
-make lint       # vet + gofmt check
+make cover      # race tests plus the 90% coverage gate
+make lint       # vet, gofmt and golangci-lint
+make fuzz       # every fuzz target for FUZZTIME (default 10s; CI uses 30s)
+make bench      # benchmarks, in benchstat format
 ```
+
+`make check` needs [golangci-lint](https://golangci-lint.run/) and
+[GoReleaser](https://goreleaser.com/) installed.
 
 Run the daemon locally against Postmark's test token, which accepts mail
 without delivering it:
@@ -52,6 +59,7 @@ internal/systemd/    sd_notify, socket activation, watchdog
 deploy/              systemd units, sysusers entry, example config
 examples/            Docker Compose, Kubernetes, CI examples
 docs/                user documentation
+tools/               repo checks: doccheck (doc comments), generated (coverage filter)
 ```
 
 Run with no Postmark account at all:
@@ -86,6 +94,41 @@ sources are in `assets/brand/src/`; regenerate them with `make brand`.
   please discuss before adding one.
 - Add tests for behaviour changes; `go test -race ./...` must pass.
 - Run `gofmt`. CI rejects unformatted code.
+
+## Quality bars
+
+CI enforces these, and `make check` runs the same gates locally:
+
+- **Coverage:** at least 90% of statements in hand-written code (generated
+  files and `examples/` are excluded), measured with the race detector on.
+- **Doc comments:** every function and method, exported or not, and every
+  package has a doc comment (`go run ./tools/doccheck ./...`).
+- **Lint and vulnerabilities:** `golangci-lint run` and `govulncheck ./...`
+  are clean.
+- **Benchmarks and fuzzing:** every critical path below has a benchmark, and
+  every one that handles outside input has a fuzz target. CI smoke-runs the
+  benchmarks and runs each fuzz target for 30 seconds. Commit any failing
+  input the fuzzer finds under the package's `testdata/fuzz/` along with the
+  fix.
+
+### Critical paths
+
+Code that parses outside input, transforms messages, sits on the per-message
+hot path or resolves configuration. Changes here need a benchmark result
+(`make bench`, compared with `benchstat`) in the pull request.
+
+| Path | Why | Benchmark | Fuzz target |
+| --- | --- | --- | --- |
+| `internal/server` request decoding and validation (`message.go`) | parses every API request body | `internal/server/bench_test.go` | `internal/server` |
+| `internal/server` send path (auth, forward, async dispatch) | per-message hot path | `internal/server/bench_test.go` | — |
+| `internal/rfc822.Convert` | parses MIME from SMTP and sendmail | `internal/rfc822/bench_test.go` | `internal/rfc822` |
+| `internal/smtpd` session, `DATA` and `AUTH` | parses SMTP from the network | `internal/smtpd/bench_test.go` | `internal/smtpd` |
+| `internal/postmark.Client.Post` | every upstream request, retries | `internal/postmark/bench_test.go` | — |
+| `internal/queue` | async hand-off between handlers and workers | `internal/queue/bench_test.go` | — |
+| `internal/metrics` | updated on every request, scraped often | `internal/metrics/bench_test.go` | — |
+| `internal/config.Load` / `ParseFile` | resolves file and environment settings | `internal/config/bench_test.go` | `internal/config` |
+| `internal/domaincheck` record parsing | parses DNS TXT records | — | `internal/domaincheck` |
+| `cmd/postmarkd` sendmail `readMessage` | reads messages from any local program | `cmd/postmarkd/fuzz_test.go` | `cmd/postmarkd` |
 - Update `docs/` and `CHANGELOG.md` for user-visible changes, including any
   new `POSTMARKD_*` option (register it in `internal/config`, document it in
   `docs/configuration.md` and `deploy/postmarkd.conf`).
