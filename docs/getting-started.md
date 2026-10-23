@@ -62,7 +62,7 @@ docker pull ghcr.io/rossedman/postmarkd:0.1
 Containers are configured entirely with environment variables. See
 [Containers and sidecars](containers.md); the rest of this guide uses systemd.
 
-**From source** (Go 1.23 or newer), which installs the same files as the
+**From source** (Go 1.27 or newer), which installs the same files as the
 packages:
 
 ```sh

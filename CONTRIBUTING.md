@@ -5,7 +5,7 @@ Everyone taking part is expected to follow the [Code of Conduct](CODE_OF_CONDUCT
 
 ## Development
 
-Requirements: Go 1.23 or newer, and `make`.
+Requirements: Go 1.27 or newer, and `make`.
 
 ```sh
 make            # vet, test, build
