@@ -223,7 +223,7 @@ func blankString(quoted []byte) bool {
 		case ' ', '\t', '\r', '\n':
 		case '\\': // escapes are rare; decode to be exact
 			var s string
-			json.Unmarshal(quoted, &s)
+			_ = json.Unmarshal(quoted, &s) // quoted is a valid JSON string
 			return strings.TrimSpace(s) == ""
 		default:
 			return false
@@ -350,7 +350,7 @@ func outcome(ep endpoint, status int, body []byte, n int) (sent, failed int, fir
 		var c code
 		if json.Unmarshal(body, &c) == nil && c.ErrorCode != 0 {
 			var r sendResult
-			json.Unmarshal(body, &r)
+			_ = json.Unmarshal(body, &r) // parsed as JSON just above
 			return 0, 1, r.Message
 		}
 		return 1, 0, ""

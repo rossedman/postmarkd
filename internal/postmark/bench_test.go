@@ -12,8 +12,8 @@ import (
 // keep-alive connection, request, buffered response) against a local server.
 func BenchmarkPost(b *testing.B) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		io.Copy(io.Discard, r.Body)
-		io.WriteString(w, `{"ErrorCode":0,"Message":"OK","MessageID":"b7bc2f4a-e38e-4336-af7d-e6c392c2f817"}`)
+		_, _ = io.Copy(io.Discard, r.Body)
+		_, _ = io.WriteString(w, `{"ErrorCode":0,"Message":"OK","MessageID":"b7bc2f4a-e38e-4336-af7d-e6c392c2f817"}`)
 	}))
 	defer srv.Close()
 	c := New(Options{BaseURL: srv.URL, ServerToken: "t", MaxConcurrency: 128})

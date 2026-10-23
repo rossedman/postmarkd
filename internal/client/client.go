@@ -95,7 +95,7 @@ func (c *Client) Do(ctx context.Context, method, path string, body []byte, heade
 	if err != nil {
 		return nil, fmt.Errorf("cannot reach postmarkd: %w", err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	b, err := io.ReadAll(io.LimitReader(res.Body, 64<<20))
 	if err != nil {
 		return nil, err

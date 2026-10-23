@@ -25,8 +25,8 @@ func start(t *testing.T, s *Server) string {
 	}
 	s.Hostname = "test.local"
 	s.Log = slog.New(slog.NewTextHandler(io.Discard, nil))
-	go s.Serve(l)
-	t.Cleanup(func() { s.Shutdown(context.Background()) })
+	go func() { _ = s.Serve(l) }()
+	t.Cleanup(func() { _ = s.Shutdown(context.Background()) })
 	return l.Addr().String()
 }
 

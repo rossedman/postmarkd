@@ -23,7 +23,7 @@ func TestRetriesRetryableStatus(t *testing.T) {
 			w.WriteHeader(http.StatusServiceUnavailable)
 			return
 		}
-		w.Write([]byte(`{"ErrorCode":0}`))
+		_, _ = w.Write([]byte(`{"ErrorCode":0}`))
 	}))
 	defer srv.Close()
 
@@ -90,7 +90,7 @@ func TestConcurrencyLimit(t *testing.T) {
 	c := newTestClient(srv.URL, 0)
 	done := make(chan struct{})
 	for range 10 {
-		go func() { c.Post(context.Background(), "/email", nil); done <- struct{}{} }()
+		go func() { _, _ = c.Post(context.Background(), "/email", nil); done <- struct{}{} }()
 	}
 	for range 10 {
 		<-done

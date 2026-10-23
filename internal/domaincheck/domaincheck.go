@@ -145,14 +145,14 @@ func getJSON(ctx context.Context, o Options, path string, v any) error {
 	req.Header.Set("X-Postmark-Account-Token", o.AccountToken)
 	res, err := o.HTTP.Do(req)
 	if err != nil {
-		return fmt.Errorf("Postmark API: %w", err)
+		return fmt.Errorf("calling the Postmark API: %w", err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	b, _ := io.ReadAll(io.LimitReader(res.Body, 4<<20))
 	if res.StatusCode != 200 {
 		var e struct{ Message string }
-		json.Unmarshal(b, &e)
-		return fmt.Errorf("Postmark API returned %d: %s (an *account* token is required, not a server token)", res.StatusCode, e.Message)
+		_ = json.Unmarshal(b, &e) // best effort: the status code is reported either way
+		return fmt.Errorf("the Postmark API returned %d: %s (an *account* token is required, not a server token)", res.StatusCode, e.Message)
 	}
 	return json.Unmarshal(b, v)
 }
@@ -231,7 +231,7 @@ v=DMARC1; p=none; rua=mailto:<reports address>
 Postmark offers free weekly DMARC digests at https://dmarc.postmarkapp.com which gives you a rua address. Move to p=quarantine or p=reject once reports show all your mail passes.`, host)
 	var dnsErr *net.DNSError
 	switch {
-	case err != nil && !(errors.As(err, &dnsErr) && dnsErr.IsNotFound):
+	case err != nil && (!errors.As(err, &dnsErr) || !dnsErr.IsNotFound):
 		c.Status, c.Detail = Fail, "lookup failed: "+err.Error()
 	case len(records) == 0:
 		c.Status, c.Detail, c.Fix = Fail, "no DMARC record at "+host+". Gmail and Yahoo require one for bulk senders.", fix

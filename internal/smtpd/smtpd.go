@@ -97,7 +97,7 @@ func (s *Server) Serve(l net.Listener) error {
 		s.mu.Lock()
 		if s.closing {
 			s.mu.Unlock()
-			c.Close()
+			_ = c.Close()
 			return ErrServerClosed
 		}
 		s.conns[c] = struct{}{}
@@ -108,7 +108,7 @@ func (s *Server) Serve(l net.Listener) error {
 				s.mu.Lock()
 				delete(s.conns, c)
 				s.mu.Unlock()
-				c.Close()
+				_ = c.Close()
 				s.wg.Done()
 			}()
 			s.serveConn(c)
@@ -122,7 +122,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	s.mu.Lock()
 	s.closing = true
 	for l := range s.listeners {
-		l.Close()
+		_ = l.Close()
 	}
 	s.mu.Unlock()
 
@@ -134,7 +134,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	case <-ctx.Done():
 		s.mu.Lock()
 		for c := range s.conns {
-			c.Close()
+			_ = c.Close()
 		}
 		s.mu.Unlock()
 		<-done
@@ -175,7 +175,7 @@ func (s *Server) serveConn(c net.Conn) {
 			sess.reply(421, "4.3.2 Service shutting down")
 			return
 		}
-		c.SetReadDeadline(time.Now().Add(s.timeout()))
+		_ = c.SetReadDeadline(time.Now().Add(s.timeout())) // a failed read reports it
 		line, err := sess.r.ReadLine()
 		if err != nil {
 			return
@@ -204,15 +204,18 @@ func (sess *session) reply(code int, lines ...string) {
 		if i < len(lines)-1 {
 			sep = "-"
 		}
-		fmt.Fprintf(sess.w, "%d%s%s\r\n", code, sep, l)
+		_, _ = fmt.Fprintf(sess.w, "%d%s%s\r\n", code, sep, l) // write errors surface on Flush
 	}
 	// Flush unless the client has pipelined more commands.
 	if sess.r.R.Buffered() == 0 {
-		sess.w.Flush()
+		sess.flush()
 	}
 }
 
-func (sess *session) flush() { sess.w.Flush() }
+func (sess *session) flush() {
+	// A broken connection fails the next read, which ends the session.
+	_ = sess.w.Flush()
+}
 
 func (sess *session) handle(verb, arg string) (quit bool) {
 	s := sess.s
@@ -304,7 +307,7 @@ func (sess *session) data() {
 	sess.reply(354, "Start mail input; end with <CRLF>.<CRLF>")
 	sess.flush()
 
-	sess.conn.SetReadDeadline(time.Now().Add(s.timeout()))
+	_ = sess.conn.SetReadDeadline(time.Now().Add(s.timeout())) // a failed read reports it
 	limit := s.MaxSize
 	if limit <= 0 {
 		limit = 50 << 20
@@ -394,7 +397,7 @@ func (sess *session) auth(arg string) {
 
 func (sess *session) readAuthLine() string {
 	sess.flush()
-	sess.conn.SetReadDeadline(time.Now().Add(sess.s.timeout()))
+	_ = sess.conn.SetReadDeadline(time.Now().Add(sess.s.timeout())) // a failed read reports it
 	l, _ := sess.r.ReadLine()
 	return strings.TrimSpace(l)
 }

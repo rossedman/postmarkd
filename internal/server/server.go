@@ -69,14 +69,14 @@ func New(cfg config.Config, sender Sender, m *metrics.Metrics, log *slog.Logger)
 		mux.Handle("POST "+ep.path, s.authenticate(s.send(ep)))
 	}
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
-		io.WriteString(w, "ok\n")
+		_, _ = io.WriteString(w, "ok\n")
 	})
 	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, _ *http.Request) {
 		if !s.ready.Load() {
 			http.Error(w, "not ready", http.StatusServiceUnavailable)
 			return
 		}
-		io.WriteString(w, "ready\n")
+		_, _ = io.WriteString(w, "ready\n")
 	})
 	if bh, ok := sender.(*blackhole.Sender); ok {
 		mux.Handle("GET /blackhole/messages", s.authenticate(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -194,7 +194,7 @@ func (s *Server) send(ep endpoint) http.HandlerFunc {
 		}
 		w.Header().Set("Content-Type", ct)
 		w.WriteHeader(res.StatusCode)
-		w.Write(res.Body)
+		_, _ = w.Write(res.Body) // the client went away; nothing to do
 	}
 }
 
@@ -235,7 +235,7 @@ func (s *Server) deliver(ctx context.Context, j queue.Job) {
 	}
 	for _, ep := range endpoints {
 		if ep.name == j.Endpoint {
-			s.forward(ctx, ep, j.Body, j.Messages, log)
+			_, _ = s.forward(ctx, ep, j.Body, j.Messages, log) // forward logs and counts failures
 			return
 		}
 	}
@@ -269,12 +269,14 @@ func (s *Server) HandleSMTP(ctx context.Context, env smtpd.Envelope, data []byte
 		return reject(http.StatusBadGateway, 451, "4.4.1 Postmark unreachable, try again later")
 	}
 	status = res.StatusCode
+	// A body that isn't JSON leaves r zero and falls through to the
+	// status code checks below.
 	var r sendResult
-	json.Unmarshal(res.Body, &r)
+	_ = json.Unmarshal(res.Body, &r)
 	switch {
 	case res.StatusCode == 200 && r.ErrorCode == 0:
 		var ok struct{ MessageID string }
-		json.Unmarshal(res.Body, &ok)
+		_ = json.Unmarshal(res.Body, &ok) // parsed as JSON just above
 		return ok.MessageID, nil
 	case res.StatusCode == 429 || res.StatusCode >= 500:
 		return "", &smtpd.Error{Code: 451, Message: fmt.Sprintf("4.3.0 Postmark error %d: %s", r.ErrorCode, r.Message)}
@@ -391,5 +393,5 @@ func (r reqLog) log(level slog.Level, msg string, args ...any) {
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(v)
+	_ = json.NewEncoder(w).Encode(v) // the client went away; nothing to do
 }

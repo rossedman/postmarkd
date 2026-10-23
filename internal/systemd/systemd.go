@@ -29,9 +29,9 @@ type Listener struct {
 // from the environment so they are not inherited by child processes.
 func Listeners() ([]Listener, error) {
 	defer func() {
-		os.Unsetenv("LISTEN_PID")
-		os.Unsetenv("LISTEN_FDS")
-		os.Unsetenv("LISTEN_FDNAMES")
+		for _, k := range []string{"LISTEN_PID", "LISTEN_FDS", "LISTEN_FDNAMES"} {
+			_ = os.Unsetenv(k) // only fails for invalid names
+		}
 	}()
 
 	pid, err := strconv.Atoi(os.Getenv("LISTEN_PID"))
@@ -54,10 +54,10 @@ func Listeners() ([]Listener, error) {
 		}
 		f := os.NewFile(uintptr(fd), name)
 		l, err := net.FileListener(f)
-		f.Close() // FileListener dups the descriptor
+		_ = f.Close() // FileListener dups the descriptor
 		if err != nil {
 			for _, l := range listeners {
-				l.Close()
+				_ = l.Close()
 			}
 			return nil, fmt.Errorf("socket activation: fd %d (%s): %w", fd, name, err)
 		}
@@ -78,7 +78,7 @@ func Notify(state string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	if _, err := conn.Write([]byte(state)); err != nil {
 		return false, err
 	}

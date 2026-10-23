@@ -20,8 +20,8 @@ func BenchmarkTransaction(b *testing.B) {
 		Hostname: "bench", MaxSize: 1 << 20, Log: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Handler: func(context.Context, Envelope, []byte) (string, error) { return "id", nil },
 	}
-	go s.Serve(l)
-	defer s.Shutdown(context.Background())
+	go func() { _ = s.Serve(l) }()
+	defer func() { _ = s.Shutdown(context.Background()) }()
 
 	msg := []byte("From: a@example.com\r\nTo: b@example.com\r\nSubject: hi\r\n\r\nHello there, this is a short message.\r\n")
 	b.SetBytes(int64(len(msg)))
@@ -31,7 +31,7 @@ func BenchmarkTransaction(b *testing.B) {
 		if err != nil {
 			b.Fatal(err)
 		}
-		defer c.Close()
+		defer func() { _ = c.Close() }()
 		for pb.Next() {
 			if err := c.Mail("a@example.com"); err != nil {
 				b.Fatal(err)
@@ -43,7 +43,9 @@ func BenchmarkTransaction(b *testing.B) {
 			if err != nil {
 				b.Fatal(err)
 			}
-			w.Write(msg)
+			if _, err := w.Write(msg); err != nil {
+				b.Fatal(err)
+			}
 			if err := w.Close(); err != nil {
 				b.Fatal(err)
 			}

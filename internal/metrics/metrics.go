@@ -152,7 +152,7 @@ func (m *Metrics) Write(w io.Writer) {
 	b = append(b, "postmarkd_start_time_seconds "...)
 	b = strconv.AppendInt(b, m.start.Unix(), 10)
 	b = append(b, '\n')
-	w.Write(b)
+	_, _ = w.Write(b) // the scraper went away; nothing to do
 }
 
 func appendHeader(b []byte, name, help, typ string) []byte {

@@ -15,14 +15,16 @@ func TestNotify(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	t.Setenv("NOTIFY_SOCKET", path)
 
 	if ok, err := Notify("READY=1"); !ok || err != nil {
 		t.Fatalf("Notify = %v, %v", ok, err)
 	}
 	buf := make([]byte, 64)
-	conn.SetReadDeadline(time.Now().Add(time.Second))
+	if err := conn.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+		t.Fatal(err)
+	}
 	n, err := conn.Read(buf)
 	if err != nil || string(buf[:n]) != "READY=1" {
 		t.Fatalf("got %q, %v", buf[:n], err)

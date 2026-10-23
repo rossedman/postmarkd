@@ -41,7 +41,9 @@ func TestFullQueueRejects(t *testing.T) {
 		t.Fatal("enqueue into a full queue should fail")
 	}
 	close(block)
-	q.Shutdown(context.Background())
+	if err := q.Shutdown(context.Background()); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestShutdownTimeoutCancels(t *testing.T) {

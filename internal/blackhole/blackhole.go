@@ -69,7 +69,7 @@ func (s *Sender) Post(_ context.Context, path string, body []byte) (*postmark.Re
 	results := make([]result, len(msgs))
 	for i, m := range msgs {
 		var to struct{ To string }
-		json.Unmarshal(m, &to)
+		_ = json.Unmarshal(m, &to) // validated by the caller; To is informational
 		id := uuid()
 		results[i] = result{To: to.To, SubmittedAt: now.Format(time.RFC3339Nano), MessageID: id, Message: "OK"}
 		s.store(Message{MessageID: id, ReceivedAt: now, Path: path, Message: m})

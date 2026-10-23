@@ -13,7 +13,9 @@ func TestBatchAndRing(t *testing.T) {
 		t.Fatal(err, res)
 	}
 	var rs []result
-	json.Unmarshal(res.Body, &rs)
+	if err := json.Unmarshal(res.Body, &rs); err != nil {
+		t.Fatal(err)
+	}
 	if len(rs) != 3 || rs[2].To != "c@x.com" || rs[0].MessageID == "" {
 		t.Fatalf("results %+v", rs)
 	}
