@@ -20,7 +20,14 @@ func rawFD(t *testing.T, l net.Listener) int {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Hold ForkLock so a parallel test starting a process can't inherit
+	// the descriptor before it is marked close-on-exec.
+	syscall.ForkLock.RLock()
 	fd, err := syscall.Dup(int(f.Fd()))
+	if err == nil {
+		syscall.CloseOnExec(fd)
+	}
+	syscall.ForkLock.RUnlock()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,13 +125,17 @@ func TestFromFDsEmptyNameFallsBack(t *testing.T) {
 
 func TestFromFDsNonSocketFails(t *testing.T) {
 	t.Parallel()
-	l, err := net.Listen("tcp", "127.0.0.1:0")
+	// A unix socket in a private directory, unlike a TCP port, can't be
+	// taken over by a parallel test once it's closed, so a refused dial
+	// proves fromFDs closed it.
+	sock := filepath.Join(shortDir(t), "s")
+	l, err := net.Listen("unix", sock)
 	if err != nil {
 		t.Fatal(err)
 	}
-	addr := l.Addr().String()
+	l.(*net.UnixListener).SetUnlinkOnClose(false)
 	sockFD := rawFD(t, l)
-	nullFD, err := syscall.Open(os.DevNull, syscall.O_RDONLY, 0)
+	nullFD, err := syscall.Open(os.DevNull, syscall.O_RDONLY|syscall.O_CLOEXEC, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,7 +149,7 @@ func TestFromFDsNonSocketFails(t *testing.T) {
 		t.Fatalf("err = %v, want it to contain %q", err, want)
 	}
 	// The listener built from the first descriptor must be closed.
-	if _, err := net.Dial("tcp", addr); !errors.Is(err, syscall.ECONNREFUSED) {
+	if _, err := net.Dial("unix", sock); !errors.Is(err, syscall.ECONNREFUSED) {
 		t.Fatalf("dial to the partially activated listener: %v, want connection refused", err)
 	}
 }
@@ -155,7 +166,10 @@ func TestListenersActivated(t *testing.T) {
 		activatedService(t)
 		return
 	}
-	t.Parallel()
+	// Not parallel: forking briefly copies every descriptor in the
+	// process, so a socket another test has just closed could stay open
+	// in the child until it execs. Sequential tests run while parallel
+	// ones are paused.
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
