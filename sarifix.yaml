@@ -1,0 +1,23 @@
+version: 1
+scanners:
+  # The same linter CI runs, with the same (default) rule set.
+  - name: golangci-lint
+    command: ["golangci-lint", "run", "--output.sarif.path={out}", "./..."]
+    workdir: "{dir}"
+  # Dockerfile and Kubernetes manifest misconfigurations.
+  - name: trivy
+    match: ["Trivy"]
+    command: ["trivy", "config", "--quiet", "--format", "sarif", "-o", "{out}", "{dir}"]
+  # Security and correctness rules for Go and the rest of the repo.
+  - name: semgrep
+    match: ["Semgrep OSS", "Semgrep"]
+    command: ["semgrep", "scan", "--quiet", "--metrics=off", "--config", "p/default", "--sarif-output={out}", "{dir}"]
+    timeout: 10m
+rules:
+  min_level: error
+  # Rules the GitHub Action may open issues for (the Stop hook ignores
+  # this list and reports every new finding at min_level or above).
+  allow: ["golangci-lint/*", "semgrep/*", "trivy/*"]
+  deny: []
+paths:
+  deny: ["**/testdata/**", "assets/brand/src/node_modules/**"]
