@@ -39,4 +39,3 @@ jobs:
       - uses: rossedman/sarifix@0147bd865e6aec0892fce765f16d48b7ac5eb273 # v0.2.3
         with:
           queue: ${{ vars.SARIFIX_QUEUE }}
-          dry-run: "true" # first run only: shows the issues it would open
