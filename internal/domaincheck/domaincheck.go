@@ -27,6 +27,7 @@ const (
 	Fail
 )
 
+// String returns the status as shown in reports: PASS, INFO, WARN or FAIL.
 func (s Status) String() string {
 	return [...]string{"PASS", "INFO", "WARN", "FAIL"}[s]
 }
@@ -112,6 +113,8 @@ type postmarkDomain struct {
 	ReturnPathDomainCNAMEValue string
 }
 
+// lookupPostmark finds o.Domain in the Postmark account and returns its
+// details, with a check describing whether it was found.
 func lookupPostmark(ctx context.Context, o Options) (*postmarkDomain, Check) {
 	c := Check{Name: "Postmark domain"}
 	var list struct{ Domains []postmarkDomain }
@@ -136,6 +139,8 @@ func lookupPostmark(ctx context.Context, o Options) (*postmarkDomain, Check) {
 	return nil, c
 }
 
+// getJSON GETs path from the Postmark account API and decodes the JSON
+// response into v.
 func getJSON(ctx context.Context, o Options, path string, v any) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, o.APIURL+path, nil)
 	if err != nil {
@@ -157,6 +162,8 @@ func getJSON(ctx context.Context, o Options, path string, v any) error {
 	return json.Unmarshal(b, v)
 }
 
+// checkDKIM checks that the DKIM selector's TXT record is published, using
+// Postmark's verification status and pending record when pm is known.
 func checkDKIM(ctx context.Context, o Options, pm *postmarkDomain) Check {
 	c := Check{Name: "DKIM"}
 	if o.DKIMSelector == "" {
@@ -194,6 +201,8 @@ func checkDKIM(ctx context.Context, o Options, pm *postmarkDomain) Check {
 	return c
 }
 
+// checkReturnPath checks that the Return-Path domain is a CNAME to
+// Postmark, which aligns SPF with the From domain.
 func checkReturnPath(ctx context.Context, o Options, pm *postmarkDomain) Check {
 	c := Check{Name: "Return-Path (SPF alignment)"}
 	cname, err := o.Resolver.LookupCNAME(ctx, o.ReturnPath)
@@ -216,6 +225,8 @@ func checkReturnPath(ctx context.Context, o Options, pm *postmarkDomain) Check {
 	return c
 }
 
+// checkDMARC checks that exactly one DMARC record is published and reports
+// how strict its policy is.
 func checkDMARC(ctx context.Context, o Options) Check {
 	c := Check{Name: "DMARC"}
 	host := "_dmarc." + o.Domain
@@ -259,6 +270,8 @@ Postmark offers free weekly DMARC digests at https://dmarc.postmarkapp.com which
 	return c
 }
 
+// checkSPF reports on the domain's own SPF record. Postmark doesn't need
+// one, since SPF is checked against the Return-Path domain.
 func checkSPF(ctx context.Context, o Options) Check {
 	c := Check{Name: "SPF (" + o.Domain + ")"}
 	txt, _ := o.Resolver.LookupTXT(ctx, o.Domain)
@@ -280,6 +293,8 @@ func checkSPF(ctx context.Context, o Options) Check {
 	return c
 }
 
+// tag returns the lower-cased value of a name=value tag in a
+// semicolon-separated record such as DMARC's, or "".
 func tag(record, name string) string {
 	for _, part := range strings.Split(record, ";") {
 		k, v, ok := strings.Cut(strings.TrimSpace(part), "=")
@@ -290,6 +305,7 @@ func tag(record, name string) string {
 	return ""
 }
 
+// fqdn qualifies host with domain unless it already ends in it.
 func fqdn(host, domain string) string {
 	host = strings.TrimSuffix(host, ".")
 	if strings.HasSuffix(strings.ToLower(host), "."+domain) {

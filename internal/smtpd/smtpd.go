@@ -33,6 +33,7 @@ type Error struct {
 	Message string // single line
 }
 
+// Error returns the reply as it is sent: code and message.
 func (e *Error) Error() string { return fmt.Sprintf("%d %s", e.Code, e.Message) }
 
 // Handler delivers a message. It returns a queue/message ID on success; a
@@ -142,6 +143,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	}
 }
 
+// shuttingDown reports whether Shutdown has been called.
 func (s *Server) shuttingDown() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -160,6 +162,8 @@ type session struct {
 	env      *Envelope
 }
 
+// serveConn runs an SMTP session on c until the client quits, the
+// connection fails or the server shuts down.
 func (s *Server) serveConn(c net.Conn) {
 	sess := &session{
 		s:        s,
@@ -191,6 +195,8 @@ func (s *Server) serveConn(c net.Conn) {
 	}
 }
 
+// timeout returns the idle timeout for a command or DATA, defaulting to
+// five minutes.
 func (s *Server) timeout() time.Duration {
 	if s.Timeout > 0 {
 		return s.Timeout
@@ -198,6 +204,8 @@ func (s *Server) timeout() time.Duration {
 	return 5 * time.Minute
 }
 
+// reply sends a single or multi-line reply, flushing it unless the client
+// has already pipelined further commands.
 func (sess *session) reply(code int, lines ...string) {
 	for i, l := range lines {
 		sep := " "
@@ -212,11 +220,13 @@ func (sess *session) reply(code int, lines ...string) {
 	}
 }
 
+// flush sends any buffered replies.
 func (sess *session) flush() {
 	// A broken connection fails the next read, which ends the session.
 	_ = sess.w.Flush()
 }
 
+// handle runs one SMTP command and reports whether the session should end.
 func (sess *session) handle(verb, arg string) (quit bool) {
 	s := sess.s
 	switch verb {
@@ -294,6 +304,8 @@ func (sess *session) handle(verb, arg string) (quit bool) {
 	return false
 }
 
+// data reads the message after DATA, enforcing the size limit, and hands
+// it to the Handler.
 func (sess *session) data() {
 	s := sess.s
 	if sess.env == nil {
@@ -341,6 +353,8 @@ func (sess *session) data() {
 	sess.reply(250, "2.0.0 OK queued as "+id)
 }
 
+// auth runs AUTH PLAIN or AUTH LOGIN, reading continuation lines as
+// needed, and checks the credentials with the server's Auth function.
 func (sess *session) auth(arg string) {
 	s := sess.s
 	if s.Auth == nil {
@@ -395,6 +409,8 @@ func (sess *session) auth(arg string) {
 	sess.reply(235, "2.7.0 Authentication succeeded")
 }
 
+// readAuthLine flushes the pending challenge and reads the client's
+// response line.
 func (sess *session) readAuthLine() string {
 	sess.flush()
 	_ = sess.conn.SetReadDeadline(time.Now().Add(sess.s.timeout())) // a failed read reports it
@@ -430,6 +446,8 @@ func parsePath(arg, prefix string) (string, map[string]string, bool) {
 	return addr, params, true
 }
 
+// oneLine collapses whitespace, including newlines, so s fits in a single
+// reply line.
 func oneLine(s string) string {
 	return strings.Join(strings.Fields(s), " ")
 }

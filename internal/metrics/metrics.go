@@ -66,6 +66,7 @@ var statusText = func() map[int]string {
 	return m
 }()
 
+// counter returns the counter for k in m, creating it on first use.
 func counter(m *sync.Map, k labels) *atomic.Uint64 {
 	if c, ok := m.Load(k); ok {
 		return c.(*atomic.Uint64)
@@ -155,6 +156,7 @@ func (m *Metrics) Write(w io.Writer) {
 	_, _ = w.Write(b) // the scraper went away; nothing to do
 }
 
+// appendHeader writes the # HELP and # TYPE lines for a metric.
 func appendHeader(b []byte, name, help, typ string) []byte {
 	b = append(append(append(b, "# HELP "...), name...), ' ')
 	b = append(append(b, help...), '\n')
@@ -175,6 +177,8 @@ func appendSample(b []byte, name, ep, label, value string, v uint64) []byte {
 	return append(b, '\n')
 }
 
+// appendLabeled writes a labeled counter family from m, sorted by labels
+// so the output is stable.
 func appendLabeled(b []byte, name, help string, m *sync.Map) []byte {
 	b = appendHeader(b, name, help, "counter")
 	type sample struct {
@@ -195,6 +199,7 @@ func appendLabeled(b []byte, name, help string, m *sync.Map) []byte {
 	return b
 }
 
+// appendCounter writes an unlabeled counter with its header.
 func appendCounter(b []byte, name, help string, v uint64) []byte {
 	b = appendHeader(b, name, help, "counter")
 	b = append(append(b, name...), ' ')

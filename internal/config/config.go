@@ -129,6 +129,7 @@ func Load(path string, environ []string) (Config, error) {
 
 var known = map[string]bool{}
 
+// init registers every POSTMARKD_* key, so Load can reject unknown ones.
 func init() {
 	for _, k := range []string{
 		"LISTEN", "SMTP_LISTEN", "SMTP_HOSTNAME", "SOCKET_MODE",
@@ -144,6 +145,8 @@ func init() {
 	}
 }
 
+// apply copies the POSTMARKD_* values in vals onto c, converting types.
+// It reports every invalid value at once rather than stopping at the first.
 func (c *Config) apply(vals map[string]string) error {
 	var errs []error
 	str := func(key string, dst *string) {
@@ -362,6 +365,7 @@ func splitTokens(s string) []string {
 	return out
 }
 
+// optional returns path if a file exists there, or "" otherwise.
 func optional(path string) string {
 	if _, err := os.Stat(path); err == nil {
 		return path
@@ -369,6 +373,7 @@ func optional(path string) string {
 	return ""
 }
 
+// lookup returns the value of key in a KEY=VALUE environment list, or "".
 func lookup(environ []string, key string) string {
 	for _, kv := range environ {
 		if k, v, ok := strings.Cut(kv, "="); ok && k == key {

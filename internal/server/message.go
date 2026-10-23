@@ -40,6 +40,8 @@ func (m message) str(name string) string {
 	return strings.TrimSpace(s)
 }
 
+// setDefault sets field name to value unless value is empty or the message
+// already has a non-blank value for it. Field names match case-insensitively.
 func (m message) setDefault(name, value string) {
 	if value == "" || m.str(name) != "" {
 		return
@@ -82,6 +84,7 @@ type apiError struct {
 	Message   string `json:"Message"`
 }
 
+// Error returns the message sent to the client.
 func (e *apiError) Error() string { return e.Message }
 
 // Error codes. 10, 300 and 402 match Postmark's own codes; 9xxx are
@@ -95,6 +98,8 @@ const (
 	codeAsyncDisabled  = 9002
 )
 
+// invalid returns a 422 Postmark-style error for a request that fails
+// validation.
 func invalid(format string, args ...any) *apiError {
 	return &apiError{Status: 422, ErrorCode: codeInvalidRequest, Message: fmt.Sprintf(format, args...)}
 }
@@ -161,6 +166,7 @@ func prepare(ep endpoint, body []byte, d defaults) ([]byte, int, *apiError) {
 // UnmarshalJSON a subslice of the input, which outlives the call here.
 type rawJSON []byte
 
+// UnmarshalJSON keeps b as is.
 func (r *rawJSON) UnmarshalJSON(b []byte) error { *r = b; return nil }
 
 // normalizeBatch normalizes every message of a JSON array.
@@ -210,6 +216,8 @@ func normalizeBatch(body []byte, template bool, d defaults) ([]byte, int, *apiEr
 // non-blank string, without copying its value.
 type field struct{ present, null, nonBlank bool }
 
+// UnmarshalJSON records that the field is present, and whether it is null
+// or a non-blank string.
 func (f *field) UnmarshalJSON(b []byte) error {
 	f.present = true
 	f.null = string(b) == "null"
@@ -217,6 +225,8 @@ func (f *field) UnmarshalJSON(b []byte) error {
 	return nil
 }
 
+// blankString reports whether a JSON string literal, quotes included,
+// holds only whitespace.
 func blankString(quoted []byte) bool {
 	for _, c := range quoted[1 : len(quoted)-1] {
 		switch c {

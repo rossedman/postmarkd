@@ -83,6 +83,8 @@ func (s *Sender) Post(_ context.Context, path string, body []byte) (*postmark.Re
 	return &postmark.Response{StatusCode: 200, ContentType: "application/json", Body: out, Attempts: 1}, nil
 }
 
+// store keeps m in the ring buffer, overwriting the oldest message once
+// keep messages are held. It does nothing when keep is 0.
 func (s *Sender) store(m Message) {
 	if s.keep == 0 {
 		return
@@ -114,6 +116,8 @@ func (s *Sender) Reset() {
 	s.next, s.full = 0, false
 }
 
+// uuid returns a random version 4 UUID, the format Postmark uses for
+// MessageID.
 func uuid() string {
 	var b [16]byte
 	rand.Read(b[:])
