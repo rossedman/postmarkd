@@ -11,6 +11,31 @@ is released you will be credited in the advisory unless you prefer otherwise.
 
 Security fixes go into the latest release.
 
+## Verifying releases
+
+Release archives and packages are covered by `checksums.txt`, which the
+release workflow signs keylessly with [cosign](https://docs.sigstore.dev/)
+using its GitHub OIDC identity. No signing keys exist to leak.
+
+```sh
+VERSION=0.2.0
+REL=https://github.com/rossedman/postmarkd/releases/download/v$VERSION
+curl -fsSLO $REL/checksums.txt
+curl -fsSLO $REL/checksums.txt.sigstore.json
+cosign verify-blob \
+  --bundle checksums.txt.sigstore.json \
+  --certificate-identity-regexp '^https://github\.com/rossedman/postmarkd/\.github/workflows/release\.yml@refs/tags/v' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  checksums.txt
+sha256sum --ignore-missing -c checksums.txt
+```
+
+Container images on `ghcr.io/rossedman/postmarkd` are signed the same way
+(`cosign verify` with the same identity flags), and archives, packages and
+images carry build provenance attestations
+(`gh attestation verify <file or oci://image> --repo rossedman/postmarkd`).
+Releases up to v0.1.0 were published before signing was added.
+
 ## Deployment notes
 
 - postmarkd can send mail as your domain. Treat access to its socket or port

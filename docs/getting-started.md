@@ -73,11 +73,36 @@ sudo make install
 <details>
 <summary>Verifying a download</summary>
 
-Each release has a `checksums.txt` with SHA-256 sums of every file:
+Each release has a `checksums.txt` with SHA-256 sums of every file, signed
+keylessly with [cosign](https://docs.sigstore.dev/) by the release workflow.
+Check the signature, then the files you downloaded:
 
 ```sh
-curl -fsSLO https://github.com/rossedman/postmarkd/releases/download/v$VERSION/checksums.txt
+REL=https://github.com/rossedman/postmarkd/releases/download/v$VERSION
+curl -fsSLO $REL/checksums.txt
+curl -fsSLO $REL/checksums.txt.sigstore.json
+cosign verify-blob \
+  --bundle checksums.txt.sigstore.json \
+  --certificate-identity-regexp '^https://github\.com/rossedman/postmarkd/\.github/workflows/release\.yml@refs/tags/v' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  checksums.txt
 sha256sum --ignore-missing -c checksums.txt
+```
+
+Every archive, package and container image also has a build provenance
+attestation you can check with the GitHub CLI:
+
+```sh
+gh attestation verify postmarkd_${VERSION}_linux_amd64.tar.gz --repo rossedman/postmarkd
+gh attestation verify oci://ghcr.io/rossedman/postmarkd:$VERSION --repo rossedman/postmarkd
+```
+
+Container images are signed too:
+
+```sh
+cosign verify ghcr.io/rossedman/postmarkd:$VERSION \
+  --certificate-identity-regexp '^https://github\.com/rossedman/postmarkd/\.github/workflows/release\.yml@refs/tags/v' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
 </details>
