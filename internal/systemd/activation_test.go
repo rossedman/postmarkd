@@ -4,20 +4,29 @@ import (
 	"errors"
 	"net"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
 	"testing"
 )
 
-func checkStaged(t *testing.T, a activation) {
+// rawFD returns a descriptor for l that nothing else owns, as systemd
+// would pass it, and closes l.
+func rawFD(t *testing.T, l net.Listener) int {
 	t.Helper()
-	if a.setupErr != nil {
-		t.Fatalf("staging socket activation in TestMain failed: %v", a.setupErr)
+	f, err := l.(interface{ File() (*os.File, error) }).File()
+	if err != nil {
+		t.Fatal(err)
 	}
-	if len(a.env) != 0 {
-		t.Errorf("LISTEN_* left in the environment: %q", a.env)
+	fd, err := syscall.Dup(int(f.Fd()))
+	if err != nil {
+		t.Fatal(err)
 	}
+	_ = f.Close()
+	_ = l.Close()
+	return fd
 }
 
 // acceptOne dials addr over network and checks l accepts the connection.
@@ -35,59 +44,194 @@ func acceptOne(t *testing.T, l net.Listener, network, addr string) {
 	_ = got.Close()
 }
 
-func TestListenersSocketActivation(t *testing.T) {
-	a := activated
-	checkStaged(t, a)
-	if a.err != nil {
-		t.Fatal(a.err)
+// shortDir returns a temporary directory short enough for a unix socket.
+func shortDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "sd")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if len(a.listeners) != 2 {
-		t.Fatalf("got %d listeners, want 2", len(a.listeners))
-	}
-	tcp, unix := a.listeners[0], a.listeners[1]
-	if tcp.Name != "http" {
-		t.Errorf("first listener name = %q, want the LISTEN_FDNAMES entry", tcp.Name)
-	}
-	if unix.Name != "LISTEN_FD_4" {
-		t.Errorf("unnamed listener name = %q, want LISTEN_FD_4", unix.Name)
-	}
-	if tcp.Addr().String() != a.addrs[0] || tcp.Addr().Network() != "tcp" {
-		t.Errorf("tcp listener addr = %v, want %s", tcp.Addr(), a.addrs[0])
-	}
-	if unix.Addr().Network() != "unix" || unix.Addr().String() != a.addrs[1] {
-		t.Errorf("unix listener addr = %v, want %s", unix.Addr(), a.addrs[1])
-	}
-	acceptOne(t, tcp, "tcp", a.addrs[0])
-	acceptOne(t, unix, "unix", a.addrs[1])
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return dir
 }
 
-func TestListenersEmptyNameFallsBack(t *testing.T) {
-	a := activatedDefaultName
-	checkStaged(t, a)
-	if a.err != nil {
-		t.Fatal(a.err)
+func TestFromFDs(t *testing.T) {
+	t.Parallel()
+	tcpL, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if len(a.listeners) != 1 || a.listeners[0].Name != "LISTEN_FD_3" {
-		t.Fatalf("listeners = %+v", a.listeners)
+	tcpAddr := tcpL.Addr().String()
+	sock := filepath.Join(shortDir(t), "s")
+	unixL, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
 	}
-	// TestMain closed it to free fd 3 for the next scenario.
-	if _, err := net.Dial("tcp", a.addrs[0]); err == nil {
-		t.Error("closed activated listener still accepts connections")
+	unixL.(*net.UnixListener).SetUnlinkOnClose(false)
+	fds := []int{rawFD(t, tcpL), rawFD(t, unixL)}
+
+	// Fewer names than sockets: the second falls back to LISTEN_FD_<fd>.
+	ls, err := fromFDs(fds, []string{"http"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		for _, l := range ls {
+			_ = l.Close()
+		}
+	}()
+	if len(ls) != 2 {
+		t.Fatalf("got %d listeners, want 2", len(ls))
+	}
+	if ls[0].Name != "http" {
+		t.Errorf("first name = %q, want http", ls[0].Name)
+	}
+	if want := "LISTEN_FD_" + strconv.Itoa(fds[1]); ls[1].Name != want {
+		t.Errorf("unnamed listener = %q, want %s", ls[1].Name, want)
+	}
+	if ls[0].Addr().Network() != "tcp" || ls[0].Addr().String() != tcpAddr {
+		t.Errorf("tcp listener addr = %v, want %s", ls[0].Addr(), tcpAddr)
+	}
+	if ls[1].Addr().Network() != "unix" || ls[1].Addr().String() != sock {
+		t.Errorf("unix listener addr = %v, want %s", ls[1].Addr(), sock)
+	}
+	acceptOne(t, ls[0], "tcp", tcpAddr)
+	acceptOne(t, ls[1], "unix", sock)
+}
+
+func TestFromFDsEmptyNameFallsBack(t *testing.T) {
+	t.Parallel()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fd := rawFD(t, l)
+	ls, err := fromFDs([]int{fd}, []string{""})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ls[0].Close() }()
+	if want := "LISTEN_FD_" + strconv.Itoa(fd); ls[0].Name != want {
+		t.Errorf("name = %q, want %s", ls[0].Name, want)
 	}
 }
 
-func TestListenersNonSocketFails(t *testing.T) {
-	a := activatedFailure
-	checkStaged(t, a)
-	if a.listeners != nil {
-		t.Fatalf("listeners = %+v, want nil on error", a.listeners)
+func TestFromFDsNonSocketFails(t *testing.T) {
+	t.Parallel()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if a.err == nil || !strings.Contains(a.err.Error(), "socket activation: fd 4 (LISTEN_FD_4): ") {
-		t.Fatalf("err = %v", a.err)
+	addr := l.Addr().String()
+	sockFD := rawFD(t, l)
+	nullFD, err := syscall.Open(os.DevNull, syscall.O_RDONLY, 0)
+	if err != nil {
+		t.Fatal(err)
 	}
-	// The listener built from fd 3 before the failure must be closed.
-	if _, err := net.Dial("tcp", a.addrs[0]); !errors.Is(err, syscall.ECONNREFUSED) {
+
+	ls, err := fromFDs([]int{sockFD, nullFD}, nil)
+	if ls != nil {
+		t.Fatalf("listeners = %+v, want nil on error", ls)
+	}
+	want := "socket activation: fd " + strconv.Itoa(nullFD) + " (LISTEN_FD_" + strconv.Itoa(nullFD) + "): "
+	if err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("err = %v, want it to contain %q", err, want)
+	}
+	// The listener built from the first descriptor must be closed.
+	if _, err := net.Dial("tcp", addr); !errors.Is(err, syscall.ECONNREFUSED) {
 		t.Fatalf("dial to the partially activated listener: %v, want connection refused", err)
+	}
+}
+
+// helperEnv makes the test binary act as a socket-activated service.
+const helperEnv = "POSTMARKD_SYSTEMD_TEST_HELPER"
+
+// TestListenersActivated runs this test binary again as systemd would run
+// a socket-activated service: the socket at fd 3, LISTEN_FDS and
+// LISTEN_FDNAMES set, and LISTEN_PID naming the process. exec places
+// ExtraFiles at fd 3 onwards, which a test cannot arrange in-process.
+func TestListenersActivated(t *testing.T) {
+	if os.Getenv(helperEnv) == "1" {
+		activatedService(t)
+		return
+	}
+	t.Parallel()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := l.(*net.TCPListener).File()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = f.Close() }()
+	addr := l.Addr().String()
+	_ = l.Close() // f keeps the socket open
+
+	cmd := exec.Command(os.Args[0], "-test.run=^TestListenersActivated$", "-test.v")
+	cmd.Env = append(os.Environ(), helperEnv+"=1", "LISTEN_FDS=1", "LISTEN_FDNAMES=http", "WANT_ADDR="+addr)
+	cmd.ExtraFiles = []*os.File{f}
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("activated process failed: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "--- PASS: TestListenersActivated") {
+		t.Fatalf("activated process did not run the check:\n%s", out)
+	}
+}
+
+// activatedService is the child side of TestListenersActivated.
+func activatedService(t *testing.T) {
+	// systemd sets LISTEN_PID to the service's pid, which the parent
+	// cannot know before exec.
+	t.Setenv("LISTEN_PID", strconv.Itoa(os.Getpid()))
+	ls, err := Listeners()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ls) != 1 || ls[0].Name != "http" {
+		t.Fatalf("listeners = %+v", ls)
+	}
+	defer func() { _ = ls[0].Close() }()
+	if got, want := ls[0].Addr().String(), os.Getenv("WANT_ADDR"); got != want {
+		t.Fatalf("addr = %s, want %s", got, want)
+	}
+	acceptOne(t, ls[0], "tcp", os.Getenv("WANT_ADDR"))
+	for _, k := range []string{"LISTEN_PID", "LISTEN_FDS", "LISTEN_FDNAMES"} {
+		if _, ok := os.LookupEnv(k); ok {
+			t.Errorf("%s should be unset", k)
+		}
+	}
+}
+
+// TestListenersInProcess runs Listeners against a socket the test owns, by
+// moving the first passed descriptor to it. It must not run in parallel.
+func TestListenersInProcess(t *testing.T) {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr := l.Addr().String()
+	old := listenFDsStart
+	listenFDsStart = rawFD(t, l)
+	t.Cleanup(func() { listenFDsStart = old })
+
+	t.Setenv("LISTEN_PID", strconv.Itoa(os.Getpid()))
+	t.Setenv("LISTEN_FDS", "1")
+	t.Setenv("LISTEN_FDNAMES", "http:extra")
+	ls, err := Listeners()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ls[0].Close() }()
+	if len(ls) != 1 || ls[0].Name != "http" || ls[0].Addr().String() != addr {
+		t.Fatalf("listeners = %+v", ls)
+	}
+	acceptOne(t, ls[0], "tcp", addr)
+	for _, k := range []string{"LISTEN_PID", "LISTEN_FDS", "LISTEN_FDNAMES"} {
+		if _, ok := os.LookupEnv(k); ok {
+			t.Errorf("%s should be unset", k)
+		}
 	}
 }
 
