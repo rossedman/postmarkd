@@ -83,6 +83,10 @@ jobs:
         uses: anthropics/claude-code-action@8d70a0dd265122bd65b8e09d3d959e65373ae2a1 # v1.0.260
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          # The sarifix workflow dispatches this one with GITHUB_TOKEN, so the
+          # run's actor is github-actions[bot]. Only this repo's workflows
+          # can act as it.
+          allowed_bots: github-actions
           prompt: |
             Implement GitHub issue #${{ steps.pick.outputs.number }} in this repository.
             Read it with `gh issue view ${{ steps.pick.outputs.number }}`. Follow CONTRIBUTING.md.
