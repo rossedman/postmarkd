@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-24
+
 ### Added
 
 - Install instructions for the release packages: one-step `.deb` and `.rpm`
@@ -94,5 +96,6 @@ send mail through Postmark.
 - Documentation site at https://rossedman.io/postmarkd/.
 - Benchmarks for every component, run in CI with a regression gate.
 
-[Unreleased]: https://github.com/rossedman/postmarkd/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/rossedman/postmarkd/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/rossedman/postmarkd/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/rossedman/postmarkd/releases/tag/v0.1.0

@@ -21,7 +21,7 @@ for `amd64` and `arm64`.
 **Debian, Ubuntu** (`.deb`):
 
 ```sh
-VERSION=0.1.0
+VERSION=0.1.1
 ARCH=$(dpkg --print-architecture)   # amd64 or arm64
 REL=https://github.com/rossedman/postmarkd/releases/download/v$VERSION
 curl -fsSLO $REL/postmarkd_${VERSION}_linux_$ARCH.deb
@@ -31,7 +31,7 @@ sudo apt install ./postmarkd_${VERSION}_linux_$ARCH.deb
 **Fedora, RHEL, Rocky, Amazon Linux** (`.rpm`):
 
 ```sh
-VERSION=0.1.0
+VERSION=0.1.1
 ARCH=$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')
 REL=https://github.com/rossedman/postmarkd/releases/download/v$VERSION
 sudo dnf install $REL/postmarkd_${VERSION}_linux_$ARCH.rpm
@@ -46,7 +46,7 @@ in step 4 once a token is in place.
 to run it without systemd:
 
 ```sh
-VERSION=0.1.0
+VERSION=0.1.1
 ARCH=amd64   # or arm64
 REL=https://github.com/rossedman/postmarkd/releases/download/v$VERSION
 curl -fsSL $REL/postmarkd_${VERSION}_linux_$ARCH.tar.gz | tar xz postmarkd

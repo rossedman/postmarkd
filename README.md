@@ -116,13 +116,13 @@ Install the package for your distribution (amd64 or arm64):
 
 ```sh
 # Debian / Ubuntu
-VERSION=0.1.0 ARCH=$(dpkg --print-architecture)
+VERSION=0.1.1 ARCH=$(dpkg --print-architecture)
 REL=https://github.com/rossedman/postmarkd/releases/download/v$VERSION
 curl -fsSLO $REL/postmarkd_${VERSION}_linux_$ARCH.deb
 sudo apt install ./postmarkd_${VERSION}_linux_$ARCH.deb
 
 # Fedora / RHEL / Rocky / Amazon Linux
-VERSION=0.1.0 ARCH=$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')
+VERSION=0.1.1 ARCH=$(uname -m | sed 's/x86_64/amd64/; s/aarch64/arm64/')
 REL=https://github.com/rossedman/postmarkd/releases/download/v$VERSION
 sudo dnf install $REL/postmarkd_${VERSION}_linux_$ARCH.rpm
 ```
