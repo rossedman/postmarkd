@@ -331,7 +331,8 @@ func normalize(raw []byte, template bool, d defaults) ([]byte, *apiError) {
 		return raw, nil
 	}
 
-	// Insert the defaults right after the opening brace.
+	// Insert the defaults right after the opening brace. The head is built
+	// in a small buffer, then joined with the rest in one allocation.
 	i := bytes.IndexByte(raw, '{') + 1
 	rest := bytes.TrimLeft(raw[i:], " \t\r\n")
 	out := make([]byte, 0, allocHint(len(raw), 64))
@@ -347,7 +348,7 @@ func normalize(raw []byte, template bool, d defaults) ([]byte, *apiError) {
 	if rest[0] != '}' {
 		out = append(out, ',')
 	}
-	return append(out, rest...), nil
+	return slices.Concat(out, rest), nil
 }
 
 // normalizeSlow is the general path: decode to a map, edit, re-encode.

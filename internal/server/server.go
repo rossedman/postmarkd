@@ -13,6 +13,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -150,7 +151,7 @@ func (s *Server) send(ep endpoint) http.HandlerFunc {
 		d := s.defaults
 		if stream := strings.TrimSpace(r.Header.Get("X-Postmarkd-Stream")); stream != "" {
 			d.MessageStream = stream
-		} else if stream := strings.TrimSpace(r.URL.Query().Get("stream")); stream != "" {
+		} else if stream := strings.TrimSpace(queryParam(r, "stream")); stream != "" {
 			d.MessageStream = stream
 		}
 		out, n, aerr := prepare(ep, body, d)
@@ -190,13 +191,13 @@ func (s *Server) send(ep endpoint) http.HandlerFunc {
 			return
 		}
 		status = res.StatusCode
-		ct := res.ContentType
-		if ct == "" {
-			ct = "application/json"
+		if !json.Valid(res.Body) {
+			// Postmark only answers in JSON; anything else (say, an HTML page from
+			// a proxy) is not relayed, so a browser cannot render it.
+			fail(&apiError{Status: http.StatusBadGateway, ErrorCode: codeUpstream, Message: "Postmark returned a non-JSON response (HTTP " + strconv.Itoa(res.StatusCode) + ")"})
+			return
 		}
-		w.Header().Set("Content-Type", ct)
-		w.WriteHeader(res.StatusCode)
-		_, _ = w.Write(res.Body) // the client went away; nothing to do
+		writeJSON(w, res.StatusCode, json.RawMessage(res.Body))
 	}
 }
 
@@ -353,10 +354,22 @@ func (s *Server) recover(next http.Handler) http.Handler {
 func isAsync(r *http.Request) bool {
 	v := r.Header.Get("X-Postmarkd-Async")
 	if v == "" {
-		v = r.URL.Query().Get("async")
+		v = queryParam(r, "async")
+	}
+	if v == "" {
+		return false // ParseBool would allocate an error
 	}
 	b, _ := strconv.ParseBool(v)
 	return b
+}
+
+// queryParam returns the first value of the query parameter key. Most
+// requests have no query string, so it is parsed only when there is one.
+func queryParam(r *http.Request, key string) string {
+	if r.URL.RawQuery == "" {
+		return ""
+	}
+	return r.URL.Query().Get(key)
 }
 
 // requestID returns the client's X-Request-Id if it has a sane length, or
@@ -397,7 +410,7 @@ func (r reqLog) log(level slog.Level, msg string, args ...any) {
 	if r.async {
 		attrs = append(attrs, "async", true)
 	}
-	r.l.Log(context.Background(), level, msg, append(attrs, args...)...)
+	r.l.Log(context.Background(), level, msg, slices.Concat(attrs, args)...)
 }
 
 // writeJSON writes v as a JSON response with the given status.
