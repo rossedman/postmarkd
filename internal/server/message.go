@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"unicode/utf8"
 )
@@ -213,18 +214,7 @@ func normalizeBatch(body []byte, template bool, d defaults) ([]byte, int, *apiEr
 	if !changed {
 		return body, len(elems), nil
 	}
-	size := 2 + len(outs)
-	for _, o := range outs {
-		size += len(o)
-	}
-	buf := make([]byte, 0, size)
-	buf = append(buf, '[')
-	for i, o := range outs {
-		if i > 0 {
-			buf = append(buf, ',')
-		}
-		buf = append(buf, o...)
-	}
+	buf := append([]byte{'['}, bytes.Join(outs, []byte{','})...)
 	return append(buf, ']'), len(elems), nil
 }
 
@@ -329,11 +319,12 @@ func normalize(raw []byte, template bool, d defaults) ([]byte, *apiError) {
 		return raw, nil
 	}
 
-	// Insert the defaults right after the opening brace.
+	// Insert the defaults right after the opening brace. The head is built
+	// in a small buffer, then joined with the rest in one allocation.
 	i := bytes.IndexByte(raw, '{') + 1
 	rest := bytes.TrimLeft(raw[i:], " \t\r\n")
-	out := make([]byte, 0, len(raw)+64)
-	out = append(out, '{')
+	var buf [128]byte
+	out := append(buf[:0], '{')
 	for j, a := range add {
 		if j > 0 {
 			out = append(out, ',')
@@ -345,7 +336,7 @@ func normalize(raw []byte, template bool, d defaults) ([]byte, *apiError) {
 	if rest[0] != '}' {
 		out = append(out, ',')
 	}
-	return append(out, rest...), nil
+	return slices.Concat(out, rest), nil
 }
 
 // normalizeSlow is the general path: decode to a map, edit, re-encode.
