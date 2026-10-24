@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"unicode/utf8"
 )
@@ -213,19 +214,20 @@ func normalizeBatch(body []byte, template bool, d defaults) ([]byte, int, *apiEr
 	if !changed {
 		return body, len(elems), nil
 	}
-	size := 2 + len(outs)
-	for _, o := range outs {
-		size += len(o)
+	joined := bytes.Join(outs, []byte{','})
+	return slices.Concat([]byte{'['}, joined, []byte{']'}), len(elems), nil
+}
+
+// maxAllocHint caps capacity hints computed from input sizes.
+const maxAllocHint = 1 << 20
+
+// allocHint returns n+extra as a capacity hint, clamped so that a large n
+// can neither overflow nor trigger an oversized allocation.
+func allocHint(n, extra int) int {
+	if n < 0 || n > maxAllocHint {
+		return maxAllocHint + extra
 	}
-	buf := make([]byte, 0, size)
-	buf = append(buf, '[')
-	for i, o := range outs {
-		if i > 0 {
-			buf = append(buf, ',')
-		}
-		buf = append(buf, o...)
-	}
-	return append(buf, ']'), len(elems), nil
+	return n + extra
 }
 
 // field records whether a field is present and whether it holds a
@@ -332,7 +334,7 @@ func normalize(raw []byte, template bool, d defaults) ([]byte, *apiError) {
 	// Insert the defaults right after the opening brace.
 	i := bytes.IndexByte(raw, '{') + 1
 	rest := bytes.TrimLeft(raw[i:], " \t\r\n")
-	out := make([]byte, 0, len(raw)+64)
+	out := make([]byte, 0, allocHint(len(raw), 64))
 	out = append(out, '{')
 	for j, a := range add {
 		if j > 0 {

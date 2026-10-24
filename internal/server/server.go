@@ -393,7 +393,7 @@ func (r reqLog) log(level slog.Level, msg string, args ...any) {
 	if !r.enabled(level) {
 		return
 	}
-	attrs := append(make([]any, 0, len(args)+6), "request_id", r.id, "endpoint", r.ep)
+	attrs := append(make([]any, 0, allocHint(len(args), 6)), "request_id", r.id, "endpoint", r.ep)
 	if r.async {
 		attrs = append(attrs, "async", true)
 	}
