@@ -8,6 +8,8 @@ scanners:
   - name: trivy
     match: ["Trivy"]
     command: ["trivy", "config", "--quiet", "--format", "sarif", "-o", "{out}", "{dir}"]
+    # trivy reads trivy.yaml from the working directory.
+    workdir: "{dir}"
     # Trivy flags the same checks in each manifest: one issue per file, not
     # one per check.
     group_by: file

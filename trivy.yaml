@@ -1,0 +1,5 @@
+# Trivy configuration, read from the working directory (sarifix runs trivy
+# from the repository root; see sarifix.yaml).
+rego:
+  # Data for trivy's built-in checks.
+  data: [.trivy]
