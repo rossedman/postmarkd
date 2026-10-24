@@ -99,6 +99,8 @@
   </div>
 </template>
 
+<template id="mark">{{MARK}}</template>
+
 <script>
   const q = "{{QUERY}}";
   const [kind, theme] = [q.split("&")[0], (q.match(/theme=(\w+)/) || [])[1]];
@@ -106,8 +108,7 @@
   document.body.className = kind;
 
   // Pull the "d" glyph out of the generated mark.
-  const mark = new DOMParser().parseFromString(`{{MARK}}`, "image/svg+xml");
-  const d = mark.querySelector("path.stamp-fill").getAttribute("d");
+  const d = document.getElementById("mark").content.querySelector("path.stamp-fill").getAttribute("d");
   const tpl = document.getElementById("stamp").innerHTML.replace("{{DGLYPH}}", `<path class="sf" d="${d}"/>`);
 
   const text = kind === "card" ? `
