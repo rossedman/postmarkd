@@ -193,9 +193,9 @@ func (s *site) write(out string) error {
 	if err := os.RemoveAll(out); err != nil {
 		return err
 	}
-	render := func(name, file string, d pageData) error {
+	render := func(tmpl *template.Template, name, file string, d pageData) error {
 		var buf bytes.Buffer
-		if err := s.tmpl.ExecuteTemplate(&buf, name, d); err != nil {
+		if err := tmpl.ExecuteTemplate(&buf, name, d); err != nil {
 			return fmt.Errorf("%s: %w", file, err)
 		}
 		dst := filepath.Join(out, file)
@@ -204,24 +204,39 @@ func (s *site) write(out string) error {
 		}
 		return os.WriteFile(dst, buf.Bytes(), 0o644)
 	}
+	// Each page body is parsed as a template (with literal "{{" escaped)
+	// rather than converted to template.HTML, so html/template checks it.
+	// Templates can't be cloned once executed, so clone them all up front.
+	docTmpl := map[*Page]*template.Template{}
+	for _, p := range s.pages {
+		t, err := s.tmpl.Clone()
+		if err != nil {
+			return err
+		}
+		body := strings.ReplaceAll(p.Content, "{{", `{{"{{"}}`)
+		if _, err := t.New("content").Parse(body); err != nil {
+			return fmt.Errorf("%s: %w", p.Source, err)
+		}
+		docTmpl[p] = t
+	}
 	base := pageData{URL: s.url, Sections: s.sections, Repo: repoURL, Version: s.version, Minor: minor(s.version)}
 
 	home := base
 	home.Path, home.Title = "", "postmarkd: send mail from anything, through Postmark"
 	home.Description = "A small, fast daemon that lets every app on a host or in a pod send mail through Postmark over HTTP, SMTP, sendmail or a CLI. Single static Go binary, systemd native, container ready."
-	if err := render("page-index", "index.html", home); err != nil {
+	if err := render(s.tmpl, "page-index", "index.html", home); err != nil {
 		return err
 	}
 	nf := base
 	nf.Root, nf.Title = s.url+"/", "Page not found · postmarkd"
-	if err := render("page-404", "404.html", nf); err != nil {
+	if err := render(s.tmpl, "page-404", "404.html", nf); err != nil {
 		return err
 	}
 	for _, p := range s.pages {
 		d := base
 		d.Root, d.Path, d.Page = "../", "docs/"+p.Slug+".html", p
 		d.Title, d.Description = p.Title+" · postmarkd", p.Description
-		if err := render("page-doc", d.Path, d); err != nil {
+		if err := render(docTmpl[p], "page-doc", d.Path, d); err != nil {
 			return err
 		}
 	}

@@ -28,7 +28,7 @@ type Page struct {
 	Title, Description    string
 	NavTitle              string // shorter title for the sidebar
 	TOC                   []TOCItem
-	Content               template.HTML
+	Content               string // rendered HTML; parsed as a template so html/template checks it
 	Prev, Next            *Page
 
 	src    []byte
@@ -159,7 +159,7 @@ func (p *Page) render(s *site) []string {
 		return `<div class="table-wrap">` + t + `</div>`
 	})
 	out = headingTagRE.ReplaceAllString(out, `<h$1 id="$2"><a class="anchor" href="#$2" aria-label="Link to this section">#</a>`)
-	p.Content = template.HTML(out)
+	p.Content = out
 	return problems
 }
 
