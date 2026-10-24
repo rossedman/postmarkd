@@ -5,12 +5,14 @@
 # localhost:8025 (HTTP) / localhost:2525 (SMTP). Nothing is exposed outside
 # the pod.
 #
-#   kubectl create secret generic postmark --from-literal=server-token=YOUR_TOKEN
+#   kubectl create namespace my-app
+#   kubectl -n my-app create secret generic postmark --from-literal=server-token=YOUR_TOKEN
 #   kubectl apply -f postmarkd-sidecar.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: my-app
+  namespace: my-app
 spec:
   replicas: 2
   selector:
@@ -47,9 +49,11 @@ spec:
             periodSeconds: 10
           resources:
             requests: { cpu: 10m, memory: 16Mi }
-            limits: { memory: 128Mi }
+            limits: { cpu: 500m, memory: 128Mi }
           securityContext:
             runAsNonRoot: true
+            runAsUser: 65532 # the image's nonroot user
+            runAsGroup: 65532
             readOnlyRootFilesystem: true
             allowPrivilegeEscalation: false
             capabilities: { drop: [ALL] }
@@ -57,7 +61,7 @@ spec:
             - { name: postmarkd, mountPath: /run/postmarkd }
       containers:
         - name: app
-          image: your-app:latest
+          image: your-app:1.0.0 # pin a version, not latest
           env:
             - name: POSTMARKD_ADDR # for curl, SDKs or `postmarkd send`
               value: /run/postmarkd/postmarkd.sock
@@ -65,8 +69,13 @@ spec:
               value: 127.0.0.1
             - name: SMTP_PORT
               value: "2525"
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { cpu: "1", memory: 512Mi }
           securityContext:
             runAsNonRoot: true
+            runAsUser: 10001 # your image's non-root user; above 10000
+            runAsGroup: 10001
             readOnlyRootFilesystem: true # mount an emptyDir for any path your app writes
             allowPrivilegeEscalation: false
             capabilities: { drop: [ALL] }
