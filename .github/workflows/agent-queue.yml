@@ -59,7 +59,7 @@ jobs:
 
       # Installs sarifix and the scanners in sarifix.yaml, so Claude can run
       # the Done when commands of issues the sarifix workflow opens.
-      - uses: rossedman/sarifix@0147bd865e6aec0892fce765f16d48b7ac5eb273 # v0.2.3
+      - uses: rossedman/sarifix@706469faaa3f32eb199873b93219d195583e8537 # v0.3.1
         if: steps.pick.outputs.number != ''
         with:
           mode: install

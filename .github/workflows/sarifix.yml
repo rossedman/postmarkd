@@ -36,6 +36,6 @@ jobs:
         with:
           go-version-file: go.mod
           cache: false
-      - uses: rossedman/sarifix@0147bd865e6aec0892fce765f16d48b7ac5eb273 # v0.2.3
+      - uses: rossedman/sarifix@706469faaa3f32eb199873b93219d195583e8537 # v0.3.1
         with:
           queue: ${{ vars.SARIFIX_QUEUE }}

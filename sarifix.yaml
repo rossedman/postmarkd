@@ -8,16 +8,28 @@ scanners:
   - name: trivy
     match: ["Trivy"]
     command: ["trivy", "config", "--quiet", "--format", "sarif", "-o", "{out}", "{dir}"]
+    # Trivy flags the same checks in each manifest: one issue per file, not
+    # one per check.
+    group_by: file
   # Security and correctness rules for Go and the rest of the repo.
   - name: semgrep
     match: ["Semgrep OSS", "Semgrep"]
     command: ["semgrep", "scan", "--quiet", "--metrics=off", "--config", "p/default", "--sarif-output={out}", "{dir}"]
     timeout: 10m
+  # CodeQL runs in code scanning, not through sarifix (no command): the
+  # GitHub Action turns its open alerts into issues too.
+  - name: codeql
+    match: ["CodeQL"]
 rules:
-  min_level: error
+  # Every level becomes an issue: code scanning shows the same findings.
+  min_level: note
   # Rules the GitHub Action may open issues for (the Stop hook ignores
   # this list and reports every new finding at min_level or above).
-  allow: ["golangci-lint/*", "semgrep/*", "trivy/*"]
+  allow: ["golangci-lint/*", "semgrep/*", "trivy/*", "codeql/*"]
   deny: []
 paths:
   deny: ["**/testdata/**", "assets/brand/src/node_modules/**"]
+publish:
+  issues:
+    # The whole backlog as issues at once (the default is 10).
+    max_open: 20
