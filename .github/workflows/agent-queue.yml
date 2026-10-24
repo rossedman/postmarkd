@@ -1,14 +1,21 @@
 name: agent-queue
 
-# Labeling an issue agent-ready (by hand, or the sarifix workflow when
-# SARIFIX_QUEUE is set) hands it to Claude, which implements it on a branch
-# and opens a pull request. Nightly it picks the oldest agent-ready issue.
+# Labeling an issue agent-ready hands it to Claude, which implements it on a
+# branch and opens a pull request. A label added by hand starts a run. The
+# sarifix workflow queues up to SARIFIX_QUEUE issues and dispatches this
+# workflow once per issue, since labels it adds with GITHUB_TOKEN start no
+# workflows. Nightly it picks the oldest agent-ready issue nobody took.
 on:
   issues:
     types: [labeled]
   schedule:
     - cron: "17 7 * * *"
   workflow_dispatch:
+    inputs:
+      issue:
+        description: Issue number to implement (empty picks the oldest agent-ready issue)
+        required: false
+        type: string
 
 permissions: {}
 
@@ -18,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     concurrency:
-      group: agent-queue-${{ github.event.issue.number || 'scheduled' }}
+      group: agent-queue-${{ github.event.issue.number || inputs.issue || 'scheduled' }}
       cancel-in-progress: false
     permissions:
       contents: write
@@ -32,10 +39,17 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          EVENT_ISSUE: ${{ github.event.issue.number }}
+          EVENT_ISSUE: ${{ github.event.issue.number || inputs.issue }}
         run: |
           set -euo pipefail
           n="${EVENT_ISSUE:-}"
+          case "$n" in *[!0-9]*) echo "::error::issue must be a number, got $n"; exit 1 ;; esac
+          # A dispatched or labeled issue must still be open and agent-ready,
+          # so a label and a dispatch for one issue don't start two runs.
+          if [ -n "$n" ] && ! gh issue view "$n" --json state,labels \
+            --jq '.state == "OPEN" and any(.labels[]; .name == "agent-ready")' | grep -qx true; then
+            echo "#$n is closed or already taken."; exit 0
+          fi
           if [ -z "$n" ]; then
             n=$(gh issue list --label agent-ready --state open --json number,createdAt \
               --jq 'sort_by(.createdAt) | .[0].number // empty')
