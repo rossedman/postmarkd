@@ -213,18 +213,7 @@ func normalizeBatch(body []byte, template bool, d defaults) ([]byte, int, *apiEr
 	if !changed {
 		return body, len(elems), nil
 	}
-	size := 2 + len(outs)
-	for _, o := range outs {
-		size += len(o)
-	}
-	buf := make([]byte, 0, size)
-	buf = append(buf, '[')
-	for i, o := range outs {
-		if i > 0 {
-			buf = append(buf, ',')
-		}
-		buf = append(buf, o...)
-	}
+	buf := append([]byte{'['}, bytes.Join(outs, []byte{','})...)
 	return append(buf, ']'), len(elems), nil
 }
 
@@ -332,7 +321,7 @@ func normalize(raw []byte, template bool, d defaults) ([]byte, *apiError) {
 	// Insert the defaults right after the opening brace.
 	i := bytes.IndexByte(raw, '{') + 1
 	rest := bytes.TrimLeft(raw[i:], " \t\r\n")
-	out := make([]byte, 0, len(raw)+64)
+	out := make([]byte, 0, 64)
 	out = append(out, '{')
 	for j, a := range add {
 		if j > 0 {
