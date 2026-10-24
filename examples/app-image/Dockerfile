@@ -12,3 +12,7 @@ ENV POSTMARKD_ADDR=/run/postmarkd/postmarkd.sock
 # bind port 80; on Kubernetes, move Apache to a high port (ports.conf) or set
 # the net.ipv4.ip_unprivileged_port_start sysctl.
 USER www-data
+
+# Healthy when Apache answers on port 80 (any HTTP status counts; curl only
+# fails if it cannot connect). Adjust for your own application.
+HEALTHCHECK --interval=30s --timeout=3s CMD ["curl", "-s", "-o", "/dev/null", "http://127.0.0.1/"]
