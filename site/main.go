@@ -102,8 +102,7 @@ type site struct {
 	bySource  map[string]*Page // repo-relative source path -> page
 	tmpl      *template.Template
 	year      int
-	mark      template.HTML // inline logo mark, colored by site CSS
-	version   string        // latest release, from CHANGELOG.md
+	version   string // latest release, from CHANGELOG.md
 }
 
 func build(root, url string) (*site, error) {
@@ -161,12 +160,15 @@ func build(root, url string) (*site, error) {
 	if inner == nil {
 		return nil, fmt.Errorf("unexpected mark.svg format")
 	}
-	s.mark = template.HTML(`<svg class="mark" viewBox="0 0 96 96" aria-hidden="true">` + string(inner[1]) + `</svg>`)
-
 	tmpl, err := template.New("").Funcs(template.FuncMap{
 		"year": func() int { return s.year },
 	}).ParseFS(embedded, "templates/*.html")
 	if err != nil {
+		return nil, err
+	}
+	// The inline logo mark (colored by site CSS) is a template rather than a
+	// template.HTML value, so html/template still checks it.
+	if _, err := tmpl.New("mark").Parse(`<svg class="mark" viewBox="0 0 96 96" aria-hidden="true">` + string(inner[1]) + `</svg>`); err != nil {
 		return nil, err
 	}
 	s.tmpl = tmpl
@@ -183,7 +185,6 @@ type pageData struct {
 	Page        *Page
 	Sections    []Section
 	Repo        string
-	Mark        template.HTML
 	Version     string // latest release, e.g. "0.1.0"
 	Minor       string // its image tag, e.g. "0.1"
 }
@@ -203,8 +204,7 @@ func (s *site) write(out string) error {
 		}
 		return os.WriteFile(dst, buf.Bytes(), 0o644)
 	}
-	base := pageData{URL: s.url, Sections: s.sections, Repo: repoURL, Mark: s.mark,
-		Version: s.version, Minor: minor(s.version)}
+	base := pageData{URL: s.url, Sections: s.sections, Repo: repoURL, Version: s.version, Minor: minor(s.version)}
 
 	home := base
 	home.Path, home.Title = "", "postmarkd: send mail from anything, through Postmark"
@@ -358,8 +358,15 @@ var tableRE = regexp.MustCompile(`(?s)<table>.*?</table>`)
 var (
 	releaseRE    = regexp.MustCompile(`(?m)^## \[(\d+\.\d+\.\d+)\]`)
 	installVerRE = regexp.MustCompile(`VERSION=(\d+\.\d+\.\d+)`)
-	imageTagRE   = regexp.MustCompile(`ghcr\.io/rossedman/postmarkd:(\d+\.\d+(?:\.\d+)?)`)
+	imageTagRE   = regexp.MustCompile(`(\S*)/rossedman/postmarkd:(\d+\.\d+(?:\.\d+)?)`)
 )
+
+// isGHCR reports whether the text before an image path ends in the ghcr.io
+// registry host, as a whole word, a key=value value or a URL authority.
+func isGHCR(prefix string) bool {
+	host, ok := strings.CutSuffix(prefix, "ghcr.io")
+	return ok && (host == "" || strings.HasSuffix(host, "=") || strings.HasSuffix(host, "://"))
+}
 
 // latestVersion is the newest released version in CHANGELOG.md.
 func latestVersion(root string) (string, error) {
@@ -400,7 +407,10 @@ func staleVersions(root, version string) []string {
 			}
 		}
 		for _, m := range imageTagRE.FindAllSubmatch(b, -1) {
-			if t := string(m[1]); t != version && t != minor(version) {
+			if !isGHCR(string(m[1])) {
+				continue
+			}
+			if t := string(m[2]); t != version && t != minor(version) {
 				stale = append(stale, fmt.Sprintf("%s: image tag %s", rel, t))
 			}
 		}

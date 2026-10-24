@@ -6,10 +6,11 @@ package postmark
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
-	"math/rand/v2"
 	"net"
 	"net/http"
 	"strconv"
@@ -196,5 +197,7 @@ func retryableErr(err error) bool {
 // with jitter over the upper half of each interval.
 func defaultBackoff(attempt int) time.Duration {
 	d := min(250*time.Millisecond<<min(attempt, 6), 10*time.Second)
-	return d/2 + rand.N(d/2+1)
+	var b [8]byte
+	rand.Read(b[:]) // never returns an error since Go 1.24
+	return d/2 + time.Duration(binary.LittleEndian.Uint64(b[:])%uint64(d/2+1))
 }
