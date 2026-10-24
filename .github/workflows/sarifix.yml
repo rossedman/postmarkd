@@ -23,7 +23,7 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
-      actions: read
+      actions: write # dispatch agent-queue (also covers the upload's read)
       security-events: write
       issues: write
     steps:
@@ -39,3 +39,6 @@ jobs:
       - uses: rossedman/sarifix@706469faaa3f32eb199873b93219d195583e8537 # v0.3.1
         with:
           queue: ${{ vars.SARIFIX_QUEUE }}
+          # Start agent-queue for each issue queued: labels added with the
+          # job's token start no workflows.
+          dispatch: agent-queue.yml
