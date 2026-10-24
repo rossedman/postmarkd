@@ -358,7 +358,7 @@ var tableRE = regexp.MustCompile(`(?s)<table>.*?</table>`)
 var (
 	releaseRE    = regexp.MustCompile(`(?m)^## \[(\d+\.\d+\.\d+)\]`)
 	installVerRE = regexp.MustCompile(`VERSION=(\d+\.\d+\.\d+)`)
-	imageTagRE   = regexp.MustCompile(`ghcr\.io/rossedman/postmarkd:(\d+\.\d+(?:\.\d+)?)`)
+	imageTagRE   = regexp.MustCompile(`(?:^|[\s=]|://)ghcr\.io/rossedman/postmarkd:(\d+\.\d+(?:\.\d+)?)`)
 )
 
 // latestVersion is the newest released version in CHANGELOG.md.
