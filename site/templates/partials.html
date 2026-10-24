@@ -35,7 +35,7 @@
 <header class="topbar">
   <div class="topbar-inner">
     {{if .Page}}<button class="icon-btn menu-btn" type="button" aria-label="Open navigation" aria-controls="sidebar" aria-expanded="false">{{template "i-menu"}}</button>{{end}}
-    <a class="brand" href="{{.Root}}index.html" aria-label="postmarkd home">{{.Mark}}<span class="wordmark">postmark<b>d</b></span></a>
+    <a class="brand" href="{{.Root}}index.html" aria-label="postmarkd home">{{template "mark"}}<span class="wordmark">postmark<b>d</b></span></a>
     <nav class="topnav" aria-label="Main">
       <a href="{{.Root}}docs/getting-started.html"{{if .Page}}{{if eq .Page.Slug "getting-started"}} aria-current="page"{{end}}{{end}}>Docs</a>
       <a href="{{.Root}}docs/sending.html"{{if .Page}}{{if eq .Page.Slug "sending"}} aria-current="page"{{end}}{{end}}>Sending</a>
@@ -65,7 +65,7 @@
 <footer class="footer">
   <div class="footer-inner">
     <div class="footer-brand">
-      <a class="brand" href="{{.Root}}index.html">{{.Mark}}<span class="wordmark">postmark<b>d</b></span></a>
+      <a class="brand" href="{{.Root}}index.html">{{template "mark"}}<span class="wordmark">postmark<b>d</b></span></a>
       <p>Send mail from anything, through Postmark.<br>Open source under the MIT license.</p>
     </div>
     <nav class="footer-cols" aria-label="Footer">
