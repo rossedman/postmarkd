@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"math/rand/v2"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -396,11 +397,11 @@ func (r reqLog) log(level slog.Level, msg string, args ...any) {
 	if !r.enabled(level) {
 		return
 	}
-	attrs := append(make([]any, 0, 6), "request_id", r.id, "endpoint", r.ep)
-	if r.async {
-		attrs = append(attrs, "async", true)
+	attrs := []any{"request_id", r.id, "endpoint", r.ep, "async", true}
+	if !r.async {
+		attrs = attrs[:4]
 	}
-	r.l.Log(context.Background(), level, msg, append(attrs, args...)...)
+	r.l.Log(context.Background(), level, msg, slices.Concat(attrs, args)...)
 }
 
 // writeJSON writes v as a JSON response with the given status.
