@@ -82,9 +82,21 @@
     return index;
   };
   const esc = s => s.replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  // Marks every case-insensitive occurrence of a term with plain string
+  // search (no RegExp built from the query), then escapes each run.
   const highlight = (text, terms) => {
-    let out = esc(text);
-    terms.forEach(t => { if (t.length > 1) out = out.replace(new RegExp(`(${t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})`, "gi"), "<mark>$1</mark>"); });
+    const lower = text.toLowerCase();
+    if (lower.length !== text.length) return esc(text); // offsets would not line up
+    const marked = new Array(text.length).fill(false);
+    terms.forEach(t => {
+      if (t.length < 2) return;
+      for (let i = lower.indexOf(t); i >= 0; i = lower.indexOf(t, i + t.length)) marked.fill(true, i, i + t.length);
+    });
+    let out = "";
+    for (let i = 0, j; i < text.length; i = j) {
+      for (j = i + 1; j < text.length && marked[j] === marked[i]; j++);
+      out += marked[i] ? `<mark>${esc(text.slice(i, j))}</mark>` : esc(text.slice(i, j));
+    }
     return out;
   };
   const snippet = (text, terms) => {
