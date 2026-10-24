@@ -358,8 +358,15 @@ var tableRE = regexp.MustCompile(`(?s)<table>.*?</table>`)
 var (
 	releaseRE    = regexp.MustCompile(`(?m)^## \[(\d+\.\d+\.\d+)\]`)
 	installVerRE = regexp.MustCompile(`VERSION=(\d+\.\d+\.\d+)`)
-	imageTagRE   = regexp.MustCompile(`(?:^|[\s=]|://)ghcr\.io/rossedman/postmarkd:(\d+\.\d+(?:\.\d+)?)`)
+	imageTagRE   = regexp.MustCompile(`(\S*)/rossedman/postmarkd:(\d+\.\d+(?:\.\d+)?)`)
 )
+
+// isGHCR reports whether the text before an image path ends in the ghcr.io
+// registry host, as a whole word, a key=value value or a URL authority.
+func isGHCR(prefix string) bool {
+	host, ok := strings.CutSuffix(prefix, "ghcr.io")
+	return ok && (host == "" || strings.HasSuffix(host, "=") || strings.HasSuffix(host, "://"))
+}
 
 // latestVersion is the newest released version in CHANGELOG.md.
 func latestVersion(root string) (string, error) {
@@ -400,7 +407,10 @@ func staleVersions(root, version string) []string {
 			}
 		}
 		for _, m := range imageTagRE.FindAllSubmatch(b, -1) {
-			if t := string(m[1]); t != version && t != minor(version) {
+			if !isGHCR(string(m[1])) {
+				continue
+			}
+			if t := string(m[2]); t != version && t != minor(version) {
 				stale = append(stale, fmt.Sprintf("%s: image tag %s", rel, t))
 			}
 		}
