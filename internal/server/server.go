@@ -191,13 +191,13 @@ func (s *Server) send(ep endpoint) http.HandlerFunc {
 			return
 		}
 		status = res.StatusCode
-		ct := res.ContentType
-		if ct == "" {
-			ct = "application/json"
+		if !json.Valid(res.Body) {
+			// Postmark only answers in JSON; anything else (say, an HTML page from
+			// a proxy) is not relayed, so a browser cannot render it.
+			fail(&apiError{Status: http.StatusBadGateway, ErrorCode: codeUpstream, Message: "Postmark returned a non-JSON response (HTTP " + strconv.Itoa(res.StatusCode) + ")"})
+			return
 		}
-		w.Header().Set("Content-Type", ct)
-		w.WriteHeader(res.StatusCode)
-		_, _ = w.Write(res.Body) // the client went away; nothing to do
+		writeJSON(w, res.StatusCode, json.RawMessage(res.Body))
 	}
 }
 

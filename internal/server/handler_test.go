@@ -191,6 +191,7 @@ func TestSendResponses(t *testing.T) {
 		wantCode int
 		wantCT   string
 		wantBody string
+		wantMsg  string
 		sent     uint64
 		failed   uint64
 	}{
@@ -199,19 +200,20 @@ func TestSendResponses(t *testing.T) {
 			sender: func(context.Context, string, []byte) (*postmark.Response, error) {
 				return &postmark.Response{StatusCode: 200, Body: []byte(`{"ErrorCode":0}`)}, nil
 			},
-			wantCode: 200, wantCT: "application/json", wantBody: `{"ErrorCode":0}`, sent: 1,
+			wantCode: 200, wantCT: "application/json", wantBody: "{\"ErrorCode\":0}\n", sent: 1,
 		},
 		{
-			name: "content type passed through",
+			name: "non-JSON upstream body not relayed",
 			sender: func(context.Context, string, []byte) (*postmark.Response, error) {
 				return &postmark.Response{StatusCode: 500, ContentType: "text/plain", Body: []byte("boom")}, nil
 			},
-			wantCode: 500, wantCT: "text/plain", wantBody: "boom", failed: 1,
+			wantCode: 502, wantCT: "application/json", failed: 1,
+			wantMsg: "Postmark returned a non-JSON response (HTTP 500)",
 		},
 		{
 			name:     "single rejected with 200",
 			sender:   reply(200, `{"ErrorCode":406,"Message":"inactive"}`),
-			wantCode: 200, wantCT: "application/json", wantBody: `{"ErrorCode":406,"Message":"inactive"}`, failed: 1,
+			wantCode: 200, wantCT: "application/json", wantBody: "{\"ErrorCode\":406,\"Message\":\"inactive\"}\n", failed: 1,
 		},
 		{
 			name: "upstream error",
@@ -219,6 +221,7 @@ func TestSendResponses(t *testing.T) {
 				return nil, errors.New("dial tcp: refused")
 			},
 			wantCode: 502, wantCT: "application/json", failed: 1,
+			wantMsg: "could not reach Postmark: dial tcp: refused",
 		},
 	}
 	for _, c := range cases {
@@ -235,7 +238,7 @@ func TestSendResponses(t *testing.T) {
 			if c.wantCode == 502 {
 				var e apiError
 				mustUnmarshal(t, w.Body.Bytes(), &e)
-				if e.ErrorCode != codeUpstream || e.Message != "could not reach Postmark: dial tcp: refused" {
+				if e.ErrorCode != codeUpstream || e.Message != c.wantMsg {
 					t.Errorf("error = %+v", e)
 				}
 			}

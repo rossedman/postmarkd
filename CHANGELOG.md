@@ -29,6 +29,10 @@ All notable changes to this project are documented here. The format follows
   more than once, under any capitalization, or a template batch with more
   than one `Messages`, is rejected with 422 instead of resolved
   unpredictably.
+- A response from Postmark that is not valid JSON is no longer relayed with
+  its own content type; the API answers 502 with a JSON error instead.
+  JSON responses keep their status and are written compactly with a
+  trailing newline.
 
 ### Fixed
 
