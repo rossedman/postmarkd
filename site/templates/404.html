@@ -2,7 +2,7 @@
 <body class="notfound-page">
 {{template "header" .}}
 <main id="main" class="notfound">
-  <div class="returned">{{.Mark}}<span>Return to sender</span></div>
+  <div class="returned">{{template "mark"}}<span>Return to sender</span></div>
   <h1>Address unknown</h1>
   <p>This page doesn’t exist, or it moved. Try the docs or search.</p>
   <p class="cta-row"><a class="btn btn-primary" href="{{.Root}}docs/getting-started.html">Read the docs</a> <a class="btn" href="{{.Root}}index.html">Home</a></p>

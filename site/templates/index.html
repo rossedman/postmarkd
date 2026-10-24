@@ -17,7 +17,7 @@
     </div>
 
     <div class="hero-demo" aria-label="Examples of sending mail with postmarkd">
-      <div class="stamp-deco" aria-hidden="true">{{.Mark}}</div>
+      <div class="stamp-deco" aria-hidden="true">{{template "mark"}}</div>
       <div class="term">
         <div class="term-bar">
           <span class="dots"><i></i><i></i><i></i></span>
@@ -78,7 +78,7 @@
       </ul>
       <div class="flow-arrow" aria-hidden="true"><span></span></div>
       <div class="flow-core">
-        <div class="flow-core-head">{{.Mark}}<strong>postmarkd</strong></div>
+        <div class="flow-core-head">{{template "mark"}}<strong>postmarkd</strong></div>
         <ul>
           <li>Defaults: From, message stream</li>
           <li>Validation before Postmark sees it</li>
@@ -235,7 +235,7 @@
 <section class="closing">
   <div class="wrap">
     <div class="closing-card">
-      <div class="closing-stamp" aria-hidden="true">{{.Mark}}</div>
+      <div class="closing-stamp" aria-hidden="true">{{template "mark"}}</div>
       <h2>Ship mail from anywhere in minutes.</h2>
       <p>Free, open source and dependency-free. Read the docs, or try it right now in blackhole mode. No Postmark account needed.</p>
       <div class="cta-row">
