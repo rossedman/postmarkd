@@ -21,7 +21,7 @@ Images are built for `linux/amd64` and `linux/arm64`.
 
 | Tag | Points to |
 | --- | --- |
-| `0.1.0` | Exactly that release. |
+| `0.1.1` | Exactly that release. |
 | `0.1` | The latest `0.1.x` patch release. Recommended for most deployments. |
 | `latest` | The newest release. |
 
