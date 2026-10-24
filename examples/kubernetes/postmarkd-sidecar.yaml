@@ -19,6 +19,9 @@ spec:
     metadata:
       labels: { app: my-app }
     spec:
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile: { type: RuntimeDefault }
       initContainers:
         - name: postmarkd
           image: ghcr.io/rossedman/postmarkd:0.1
@@ -62,6 +65,11 @@ spec:
               value: 127.0.0.1
             - name: SMTP_PORT
               value: "2525"
+          securityContext:
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true # mount an emptyDir for any path your app writes
+            allowPrivilegeEscalation: false
+            capabilities: { drop: [ALL] }
           volumeMounts:
             - { name: postmarkd, mountPath: /run/postmarkd }
       volumes:
