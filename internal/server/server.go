@@ -4,15 +4,14 @@ package server
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/subtle"
-	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
-	"math/rand/v2"
 	"net/http"
 	"strconv"
 	"strings"
@@ -369,12 +368,10 @@ func requestID(r *http.Request) string {
 	return newID()
 }
 
-// newID returns a random 96-bit hex ID. IDs only correlate logs, so they
-// don't need a cryptographic generator.
+// newID returns a random 96-bit hex ID.
 func newID() string {
 	var b [12]byte
-	binary.LittleEndian.PutUint64(b[:8], rand.Uint64())
-	binary.LittleEndian.PutUint32(b[8:], rand.Uint32())
+	rand.Read(b[:]) // never returns an error since Go 1.24
 	return hex.EncodeToString(b[:])
 }
 
