@@ -20,7 +20,7 @@
     <article class="prose">
       <p class="eyebrow">{{.Page.Section}}</p>
       <h1>{{.Page.Title}}</h1>
-      {{.Page.Content}}
+      {{template "content" .}}
     </article>
 
     <nav class="pager" aria-label="Previous and next page">
