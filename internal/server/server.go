@@ -150,7 +150,7 @@ func (s *Server) send(ep endpoint) http.HandlerFunc {
 		d := s.defaults
 		if stream := strings.TrimSpace(r.Header.Get("X-Postmarkd-Stream")); stream != "" {
 			d.MessageStream = stream
-		} else if stream := strings.TrimSpace(r.URL.Query().Get("stream")); stream != "" {
+		} else if stream := strings.TrimSpace(queryParam(r, "stream")); stream != "" {
 			d.MessageStream = stream
 		}
 		out, n, aerr := prepare(ep, body, d)
@@ -353,10 +353,22 @@ func (s *Server) recover(next http.Handler) http.Handler {
 func isAsync(r *http.Request) bool {
 	v := r.Header.Get("X-Postmarkd-Async")
 	if v == "" {
-		v = r.URL.Query().Get("async")
+		v = queryParam(r, "async")
+	}
+	if v == "" {
+		return false // ParseBool would allocate an error
 	}
 	b, _ := strconv.ParseBool(v)
 	return b
+}
+
+// queryParam returns the first value of the query parameter key. Most
+// requests have no query string, so it is parsed only when there is one.
+func queryParam(r *http.Request, key string) string {
+	if r.URL.RawQuery == "" {
+		return ""
+	}
+	return r.URL.Query().Get(key)
 }
 
 // requestID returns the client's X-Request-Id if it has a sane length, or
