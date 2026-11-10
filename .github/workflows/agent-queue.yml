@@ -80,7 +80,7 @@ jobs:
 
       - name: Implement
         if: steps.pick.outputs.number != ''
-        uses: anthropics/claude-code-action@8d70a0dd265122bd65b8e09d3d959e65373ae2a1 # v1.0.260
+        uses: anthropics/claude-code-action@d70510b174a1244958df0b03166a54912811f3e6 # v1.0.264
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           # The sarifix workflow dispatches this one with GITHUB_TOKEN, so the
