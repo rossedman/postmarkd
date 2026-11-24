@@ -65,7 +65,7 @@ jobs:
           persist-credentials: false
 
       # make check and golangci-lint need the Go toolchain.
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         if: steps.pick.outputs.number != ''
         with:
           go-version-file: go.mod
@@ -80,7 +80,7 @@ jobs:
 
       - name: Implement
         if: steps.pick.outputs.number != ''
-        uses: anthropics/claude-code-action@d70510b174a1244958df0b03166a54912811f3e6 # v1.0.264
+        uses: anthropics/claude-code-action@cc98b3ae241b0fcfb6a42a2690751afffecb4452 # v1.0.278
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           # The sarifix workflow dispatches this one with GITHUB_TOKEN, so the
